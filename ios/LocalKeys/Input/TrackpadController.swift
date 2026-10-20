@@ -4,7 +4,7 @@ import UIKit
 /// Trackpad: 1 finger moves (with acceleration), tap = left click, tap-and-hold-drag = drag,
 /// 2-finger tap = right click, 2-finger slide = scroll (with momentum), 3-finger tap = middle click.
 /// Mouse look: raw, linear relative movement for game cameras; every finger counts.
-final class TrackpadController {
+final class TrackpadController: NSObject {
     enum Mode { case trackpad, mouseLook }
 
     private struct TouchInfo {
@@ -29,7 +29,10 @@ final class TrackpadController {
     private var input: InputController { .shared }
     private var s: AppSettings { .shared }
 
-    init(mode: Mode) { self.mode = mode }
+    init(mode: Mode) {
+        self.mode = mode
+        super.init()
+    }
 
     var isActive: Bool { !touches.isEmpty }
 

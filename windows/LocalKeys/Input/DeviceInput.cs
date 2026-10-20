@@ -1,4 +1,5 @@
 using static LocalKeys.Native;
+using Timer = System.Threading.Timer;
 
 namespace LocalKeys.Input;
 

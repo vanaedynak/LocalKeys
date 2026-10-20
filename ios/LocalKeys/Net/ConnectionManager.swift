@@ -125,7 +125,7 @@ final class ConnectionManager: ObservableObject {
         let b = NWBrowser(for: .bonjour(type: Proto.bonjourType, domain: nil), using: params)
         b.browseResultsChangedHandler = { [weak self] results, _ in
             guard let self = self else { return }
-            self.bonjourFound = results.compactMap { r in
+            self.bonjourFound = results.compactMap { r -> DiscoveredPC? in
                 if case let .service(name, _, _, _) = r.endpoint {
                     return DiscoveredPC(name: name, endpoint: r.endpoint, source: "bonjour")
                 }
