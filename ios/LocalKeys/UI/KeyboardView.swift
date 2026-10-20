@@ -20,6 +20,11 @@ final class KeyboardView: UIView {
     var onSwitchLayout: ((String) -> Void)?
     /// Edit mode: an element was tapped (not dragged).
     var onEditTap: ((UUID) -> Void)?
+    /// Edit mode: the layout was stretched to the whole screen (visual positions unchanged).
+    var onFilled: ((KBLayout) -> Void)?
+    private var pendingFill = false
+    private var originX: CGFloat = 0
+    private var originY: CGFloat = 0
 
     private var views: [UUID: ElementView] = [:]
     private var cells: [UUID: CGRect] = [:]
@@ -97,6 +102,8 @@ final class KeyboardView: UIView {
         if editing != self.editing {
             releaseAllTouches()
             self.editing = editing
+            pendingFill = editing
+            setNeedsLayout()
         }
         let themeChanged = theme.id != self.theme.id || gap != self.gap
         self.theme = theme
@@ -195,6 +202,8 @@ final class KeyboardView: UIView {
         let w = x * CGFloat(layout.cols), h = y * CGFloat(layout.rows)
         let ox = (bounds.width - w) / 2
         let oy = max(0, bounds.height - h) * min(max(vpos, 0), 1)
+        originX = ox
+        originY = oy
         for k in layout.keys {
             let cell = CGRect(x: ox + CGFloat(k.x) * x, y: oy + CGFloat(k.y) * y, width: CGFloat(k.w) * x, height: CGFloat(k.h) * y)
             cells[k.id] = cell
@@ -208,6 +217,28 @@ final class KeyboardView: UIView {
                 }
             }
         }
+        fillScreenIfNeeded()
+    }
+
+    /// Editing works on the whole screen: grow the layout canvas to fill the view and shift the
+    /// elements so that nothing moves visually. Then anything can be dragged anywhere.
+    private func fillScreenIfNeeded() {
+        guard pendingFill, editing, bounds.width > 100, bounds.height > 100, ux > 1, uy > 1 else { return }
+        pendingFill = false
+        let pad: CGFloat = 6
+        let newCols = Double((bounds.width - pad * 2) / ux)
+        let newRows = Double((bounds.height - pad * 2) / uy)
+        let dx = Double((originX - pad) / ux)
+        let dy = Double((originY - pad) / uy)
+        guard abs(newCols - layout.cols) > 0.02 || abs(newRows - layout.rows) > 0.02 || abs(dx) > 0.01 || abs(dy) > 0.01 else { return }
+        var l = layout
+        l.cols = (newCols * 100).rounded(.down) / 100
+        l.rows = (newRows * 100).rounded(.down) / 100
+        for i in l.keys.indices {
+            l.keys[i].x = ((l.keys[i].x + dx) * 100).rounded() / 100
+            l.keys[i].y = ((l.keys[i].y + dy) * 100).rounded() / 100
+        }
+        DispatchQueue.main.async { [weak self] in self?.onFilled?(l) }
     }
 
     private func element(at p: CGPoint) -> KeyDef? {
@@ -613,14 +644,34 @@ final class KeyboardView: UIView {
         guard let i = index[op.id], i < layout.keys.count else { return }
         let dx = Double((p.x - op.start.x) / ux)
         let dy = Double((p.y - op.start.y) / uy)
-        func snap(_ v: Double) -> Double { (v * 4).rounded() / 4 }
+        // Magnet: edges stick to the edges of other elements and of the screen when close.
+        let others = layout.keys.filter { $0.id != op.id }
+        let xs = [0, layout.cols] + others.flatMap { [$0.x, $0.x + $0.w] }
+        let ys = [0, layout.rows] + others.flatMap { [$0.y, $0.y + $0.h] }
+        let thr = 0.12
+        func r2(_ v: Double) -> Double { (v * 100).rounded() / 100 }
+        func magnetPos(_ v: Double, _ size: Double, _ cands: [Double]) -> Double {
+            var best = v, dist = thr
+            for c in cands {
+                if abs(v - c) < dist { dist = abs(v - c); best = c }
+                if abs(v + size - c) < dist { dist = abs(v + size - c); best = c - size }
+            }
+            return r2(best)
+        }
+        func magnetEdge(_ v: Double, _ cands: [Double]) -> Double {
+            var best = v, dist = thr
+            for c in cands where abs(v - c) < dist { dist = abs(v - c); best = c }
+            return r2(best)
+        }
         var k = layout.keys[i]
         if op.resize {
-            k.w = min(max(0.5, snap(op.orig.w + dx)), max(0.5, layout.cols - k.x))
-            k.h = min(max(0.5, snap(op.orig.h + dy)), max(0.5, layout.rows - k.y))
+            let right = magnetEdge(op.orig.x + op.orig.w + dx, xs)
+            let bottom = magnetEdge(op.orig.y + op.orig.h + dy, ys)
+            k.w = min(max(0.4, right - k.x), max(0.4, layout.cols - k.x))
+            k.h = min(max(0.4, bottom - k.y), max(0.4, layout.rows - k.y))
         } else {
-            k.x = min(max(0, snap(op.orig.x + dx)), max(0, layout.cols - k.w))
-            k.y = min(max(0, snap(op.orig.y + dy)), max(0, layout.rows - k.h))
+            k.x = min(max(0, magnetPos(op.orig.x + dx, k.w, xs)), max(0, layout.cols - k.w))
+            k.y = min(max(0, magnetPos(op.orig.y + dy, k.h, ys)), max(0, layout.rows - k.h))
         }
         if k != layout.keys[i] {
             layout.keys[i] = k

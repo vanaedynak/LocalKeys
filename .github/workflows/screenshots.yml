@@ -43,7 +43,7 @@ jobs:
           mkdir -p shots
           shoot() {
             xcrun simctl terminate "$DEVICE" com.localkeys.app 2>/dev/null || true
-            SIMCTL_CHILD_LK_SCREENSHOT=1 SIMCTL_CHILD_LK_LANDSCAPE=1 SIMCTL_CHILD_LK_LAYOUT="$1" SIMCTL_CHILD_LK_THEME="${3:-midnight}" SIMCTL_CHILD_LK_VPOS="${4:-}" \
+            SIMCTL_CHILD_LK_SCREENSHOT=1 SIMCTL_CHILD_LK_LANDSCAPE=1 SIMCTL_CHILD_LK_LAYOUT="$1" SIMCTL_CHILD_LK_THEME="${3:-midnight}" SIMCTL_CHILD_LK_VPOS="${4:-}" SIMCTL_CHILD_LK_EDIT="${5:-}" \
               xcrun simctl launch "$DEVICE" com.localkeys.app
             sleep 6
             xcrun simctl io "$DEVICE" screenshot "shots/$2.png"
@@ -57,6 +57,8 @@ jobs:
           shoot builtin.shortcuts 6-shortcuts neon
           shoot builtin.trackpad 7-trackpad
           shoot builtin.dp68 8-dp68-bottom midnight 1
+          shoot builtin.stick 9a-stick-bottom midnight 1
+          shoot builtin.stick 9b-stick-edit midnight 1 1
           ls -la shots
 
       - uses: actions/upload-artifact@v4

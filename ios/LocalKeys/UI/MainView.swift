@@ -49,6 +49,11 @@ struct MainView: View {
                               onEditTap: { id in
                                   selectedId = id
                                   sheet = .inspector
+                              },
+                              onFilled: { l in
+                                  // The layout now covers the whole screen at its current size.
+                                  settings.placements[l.id] = nil
+                                  commit(l)
                               })
                 .ignoresSafeArea(.container, edges: [.bottom, .horizontal])
         }
@@ -80,6 +85,9 @@ struct MainView: View {
         .preferredColorScheme(theme.isLight ? .light : .dark)
         .onAppear {
             if !settings.onboardingDone { sheet = .help }
+            if ProcessInfo.processInfo.environment["LK_EDIT"] != nil {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { startEditing() }
+            }
         }
     }
 
@@ -107,7 +115,12 @@ struct MainView: View {
 
     private func startEditing() {
         var l = store.current
-        if l.builtIn { l = store.duplicate(l) }
+        if l.builtIn {
+            let original = l
+            l = store.duplicate(l)
+            // Keep the height/size the user set, so the editor opens exactly where the keyboard was.
+            if let p = settings.placements[original.id] { settings.placements[l.id] = p }
+        }
         editLayout = l
         selectedId = nil
         editing = true

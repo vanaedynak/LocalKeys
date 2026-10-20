@@ -25,6 +25,7 @@ struct KeyboardContainer: UIViewControllerRepresentable {
     var onSpecial: (SpecialAction) -> Void
     var onSwitchLayout: (String) -> Void
     var onEditTap: (UUID) -> Void = { _ in }
+    var onFilled: (KBLayout) -> Void = { _ in }
 
     func makeUIViewController(context: Context) -> KeyboardViewController {
         KeyboardViewController()
@@ -37,6 +38,7 @@ struct KeyboardContainer: UIViewControllerRepresentable {
         kb.onSpecial = onSpecial
         kb.onSwitchLayout = onSwitchLayout
         kb.onEditTap = onEditTap
+        kb.onFilled = onFilled
         kb.apply(layout: layout, theme: theme, gap: CGFloat(gap), editing: editing,
                  selectedId: selectedId, vpos: CGFloat(vpos), scale: CGFloat(scale))
     }
