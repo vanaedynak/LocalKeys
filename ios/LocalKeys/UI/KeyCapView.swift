@@ -126,7 +126,7 @@ final class KeyCapView: ElementView {
         let fg: UIColor = pressed ? (theme.isLight ? .white : UIColor(white: 0.04, alpha: 1)) :
             ((style == .accent || style == .danger) ? .white : theme.text)
         mainLabel.textColor = fg
-        captionLabel.textColor = pressed ? fg : theme.textDim
+        captionLabel.textColor = (pressed || style == .accent || style == .danger) ? fg.withAlphaComponent(0.92) : theme.textDim
         icon.tintColor = fg
         topLabel.textColor = pressed ? fg.withAlphaComponent(0.8) : theme.textDim
         altLabel.textColor = pressed ? fg.withAlphaComponent(0.8) : theme.accent.withAlphaComponent(0.85)

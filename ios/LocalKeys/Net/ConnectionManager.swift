@@ -33,6 +33,8 @@ final class ConnectionManager: ObservableObject {
     @Published private(set) var wifiLinked = false
     @Published private(set) var scanning = false
     @Published private(set) var statusDetail = ""
+    /// The user denied "Local Network" access: Wi-Fi discovery and connections cannot work.
+    @Published private(set) var localNetworkDenied = false
 
     private let settings = AppSettings.shared
     private var usbLink: Link?
@@ -135,6 +137,14 @@ final class ConnectionManager: ObservableObject {
             if self.wifiLink == nil { self.nextWifiAttempt = Date.distantPast }
         }
         b.stateUpdateHandler = { [weak self] state in
+            if case .waiting(let error) = state, case .dns(let code) = error, code == -65570 /* kDNSServiceErr_PolicyDenied */ {
+                self?.localNetworkDenied = true
+                self?.refresh()
+            }
+            if case .ready = state, self?.localNetworkDenied == true {
+                self?.localNetworkDenied = false
+                self?.refresh()
+            }
             if case .failed = state {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                     if self?.running == true { self?.startBrowser() }
@@ -431,6 +441,8 @@ final class ConnectionManager: ObservableObject {
             detail = "Подтвердите код на компьютере"
         case .denied:
             detail = "Компьютер отклонил подключение"
+        case .searching where localNetworkDenied:
+            detail = "Нет доступа к локальной сети: Настройки → LocalKeys → Локальная сеть"
         case .searching:
             detail = discovered.isEmpty ? "Поиск компьютера с LocalKeys…" : "Найдено: \(discovered.map { $0.name }.joined(separator: ", "))"
         case .idle:

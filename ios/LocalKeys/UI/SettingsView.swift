@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SettingsView: View {
     @ObservedObject private var s = AppSettings.shared
@@ -118,6 +119,14 @@ struct ConnectionView: View {
                         }
                     }
                     .padding(.vertical, 4)
+                    if conn.localNetworkDenied {
+                        Button {
+                            if let url = URL(string: UIApplication.openSettingsURLString) { UIApplication.shared.open(url) }
+                        } label: {
+                            Label("Разрешите LocalKeys доступ к локальной сети (Настройки → LocalKeys → Локальная сеть), иначе Wi-Fi не работает. USB работает и без этого.", systemImage: "exclamationmark.triangle.fill")
+                                .foregroundColor(.orange)
+                        }
+                    }
                 }
 
                 Section {
