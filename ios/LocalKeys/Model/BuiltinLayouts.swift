@@ -178,20 +178,30 @@ enum BuiltinLayouts {
 
     static var gamingStick: KBLayout {
         var b = LB()
-        b.row(0)
+        // Top row
+        b.row(0, h: 0.95)
         b.k(KC.esc); b.k(KC.tab); for n in 1...5 { b.k(KC.digit(n)) }; b.k(KC.m, 1.3)
-        b.put(.stick(StickConfig()), 0, 1.15, 4.1, 3.85)
-        b.row(1.15, x: 4.3)
+        // Stick: raised off the bottom edge, Shift / Ctrl below it
+        b.put(.stick(StickConfig()), 0, 1.05, 4.1, 3.5)
+        b.row(4.65, h: 0.85)
+        b.k(KC.lshift, 2.0)
+        b.k(KC.lctrl, 2.1)
+        // Action keys
+        b.row(1.05, x: 4.3)
         for c in [KC.q, KC.e, KC.r, KC.f] { b.k(c) }
-        b.row(2.15, x: 4.3)
+        b.row(2.05, x: 4.3)
         for c in [KC.z, KC.x, KC.c, KC.g] { b.k(c) }
-        b.row(3.2, h: 1.8, x: 4.3)
-        b.k(KC.lctrl, 1.2)
-        b.k(KC.space, 2.8)
-        b.put(.mouseLook, 8.6, 0, 7.4, 3.4)
-        b.put(.mouse(0), 8.6, 3.5, 3.6, 1.5, "ЛКМ")
-        b.put(.mouse(1), 12.4, 3.5, 3.6, 1.5, "ПКМ")
-        return KBLayout(id: "builtin.stick", name: "Игры: стик", icon: "l.joystick", cols: 16, rows: 5, keys: b.keys, glide: true, builtIn: true)
+        b.row(3.05, h: 1.5, x: 4.3)
+        b.k(KC.space, 4)
+        b.row(4.65, h: 0.85, x: 4.3)
+        b.k(KC.lalt); b.k(KC.t); b.k(KC.v); b.k(KC.h)
+        // Mouse
+        b.put(.mouseLook, 8.6, 0, 7.4, 3.6)
+        b.put(.mouse(0), 8.6, 3.75, 3.2, 1.75, "ЛКМ")
+        b.put(.wheel(1), 11.9, 3.75, 1.0, 0.85)
+        b.put(.wheel(-1), 11.9, 4.65, 1.0, 0.85)
+        b.put(.mouse(1), 13.0, 3.75, 3.0, 1.75, "ПКМ")
+        return KBLayout(id: "builtin.stick", name: "Игры: стик", icon: "l.joystick", cols: 16, rows: 5.5, keys: b.keys, glide: true, builtIn: true)
     }
 
     static var trackpad: KBLayout {

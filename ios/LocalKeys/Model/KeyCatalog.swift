@@ -114,10 +114,10 @@ enum KeyCatalog {
         case KC.volMute: return "Mute"
         case KC.volDown: return "Vol−"
         case KC.volUp: return "Vol+"
-        case KC.playPause: return "⏯"
-        case KC.nextTrack: return "⏭"
-        case KC.prevTrack: return "⏮"
-        case KC.stopMedia: return "■"
+        case KC.playPause: return "Play"
+        case KC.nextTrack: return "Next"
+        case KC.prevTrack: return "Prev"
+        case KC.stopMedia: return "Stop"
         default: return name(code)
         }
     }

@@ -45,7 +45,11 @@ struct MainView: View {
                                   store.update(l)
                               },
                               onSpecial: handleSpecial,
-                              onSwitchLayout: { store.currentId = $0 })
+                              onSwitchLayout: { store.currentId = $0 },
+                              onEditTap: { id in
+                                  selectedId = id
+                                  sheet = .inspector
+                              })
                 .ignoresSafeArea(.container, edges: [.bottom, .horizontal])
         }
         .background(Color(uiColor: theme.bg).ignoresSafeArea())
@@ -357,7 +361,7 @@ struct EditorBar: View {
         .frame(height: 46)
         .background(Color(uiColor: theme.bar))
         .overlay(alignment: .bottom) {
-            Text("Перетаскивайте элементы, угол — изменить размер. Сетка 0.25 клавиши.")
+            Text("Касание — свойства элемента, перетаскивание — переместить, угол — размер.")
                 .font(.system(size: 10))
                 .foregroundColor(Color(uiColor: theme.textDim))
                 .offset(y: 14)

@@ -264,6 +264,21 @@ struct KeyInspectorView: View {
                 HStack { Text("Вправо"); Spacer(); Text(KeyCatalog.name(cfg.right)).foregroundColor(.secondary) }
             }
             Toggle("Бег при сильном отклонении вперёд (Shift)", isOn: Binding(get: { cfg.sprint != nil }, set: { on in update { $0.sprint = on ? KC.lshift : nil } }))
+            VStack(alignment: .leading) {
+                Text("Мёртвая зона: \(Int(((cfg.deadzone ?? 0.28) * 100).rounded()))%")
+                Slider(value: Binding(get: { cfg.deadzone ?? 0.28 }, set: { v in update { $0.deadzone = v } }), in: 0.05...0.7)
+            }
+            if cfg.sprint != nil {
+                VStack(alignment: .leading) {
+                    Text("Бег включается при отклонении: \(String(format: "%.1f", cfg.sprintAt ?? 1.3))")
+                    Slider(value: Binding(get: { cfg.sprintAt ?? 1.3 }, set: { v in update { $0.sprintAt = v } }), in: 1.0...2.2)
+                }
+                Toggle("Бег не сбрасывается, пока палец на стике", isOn: Binding(get: { cfg.sprintLatch == true }, set: { v in update { $0.sprintLatch = v } }))
+                NavigationLink { KeyPickerView(selection: Binding(get: { cfg.sprint ?? KC.lshift }, set: { v in update { $0.sprint = v } }), title: "Клавиша бега") } label: {
+                    HStack { Text("Клавиша бега"); Spacer(); Text(KeyCatalog.name(cfg.sprint ?? KC.lshift)).foregroundColor(.secondary) }
+                }
+            }
+            Toggle("Фиксированный центр (иначе центр там, где коснулись)", isOn: Binding(get: { cfg.fixedCenter == true }, set: { v in update { $0.fixedCenter = v } }))
             Button("Стрелки вместо WASD") {
                 update { $0.up = KC.up; $0.left = KC.left; $0.down = KC.down; $0.right = KC.right }
             }

@@ -35,6 +35,14 @@ struct StickConfig: Codable, Hashable {
     var right: UInt16 = KC.d
     /// Held when the stick is pushed far forward (e.g. Shift to sprint). nil = off.
     var sprint: UInt16? = KC.lshift
+    /// Dead zone as a fraction of the stick radius (default 0.28).
+    var deadzone: Double? = nil
+    /// Push distance (in radii) at which sprint engages (default 1.3).
+    var sprintAt: Double? = nil
+    /// true: the stick centre is the middle of the element; false/nil: it floats to where the finger lands.
+    var fixedCenter: Bool? = nil
+    /// Sprint stays on after it engaged until the finger is lifted.
+    var sprintLatch: Bool? = nil
 }
 
 enum KeyAction: Codable, Hashable {

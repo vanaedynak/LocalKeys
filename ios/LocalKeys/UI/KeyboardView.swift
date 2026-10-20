@@ -18,6 +18,8 @@ final class KeyboardView: UIView {
     var onEdited: ((KBLayout) -> Void)?
     var onSpecial: ((SpecialAction) -> Void)?
     var onSwitchLayout: ((String) -> Void)?
+    /// Edit mode: an element was tapped (not dragged).
+    var onEditTap: ((UUID) -> Void)?
 
     private var views: [UUID: ElementView] = [:]
     private var cells: [UUID: CGRect] = [:]
@@ -438,7 +440,7 @@ final class KeyboardView: UIView {
         var len = hypot(off.x, off.y)
         // Floating stick: drag the centre along when the finger goes far, so reversing is instant.
         let maxLen = r * 1.6
-        if len > maxLen {
+        if len > maxLen, k.stickFloats {
             let k2 = (len - maxLen) / len
             st.center = CGPoint(x: st.center.x + off.x * k2, y: st.center.y + off.y * k2)
             off = CGPoint(x: p.x - st.center.x, y: p.y - st.center.y)
@@ -446,13 +448,17 @@ final class KeyboardView: UIView {
         }
         let dist = len / r
         var want = Set<UInt16>()
-        if dist > 0.28 {
+        let dead = cfg.deadzone ?? 0.28
+        if dist > dead {
             let nx = off.x / len, ny = off.y / len
             if ny < -0.38 { want.insert(cfg.up) }
             if ny > 0.38 { want.insert(cfg.down) }
             if nx < -0.38 { want.insert(cfg.left) }
             if nx > 0.38 { want.insert(cfg.right) }
-            if let sprint = cfg.sprint, dist > 1.3, ny < -0.38 { want.insert(sprint) }
+            if let sprint = cfg.sprint {
+                if dist > (cfg.sprintAt ?? 1.3), ny < -0.38 { want.insert(sprint) }
+                if cfg.sprintLatch == true, st.held.contains(sprint), want.contains(cfg.up) { want.insert(sprint) }
+            }
         }
         for c in st.held.subtracting(want) { input.release(c) }
         for c in want.subtracting(st.held) { input.press(c) }
@@ -515,7 +521,13 @@ final class KeyboardView: UIView {
                 bindings[key] = .ignored
                 return
             }
-            sticks[k.id] = StickState(center: p, held: [])
+            let center: CGPoint
+            if case .stick(let cfg) = k.action, cfg.fixedCenter == true, let cell = cells[k.id] {
+                center = CGPoint(x: cell.midX, y: cell.midY)
+            } else {
+                center = p
+            }
+            sticks[k.id] = StickState(center: center, held: [])
             bindings[key] = .stick(k.id)
             updateStick(k.id, p)
         default:
@@ -559,8 +571,13 @@ final class KeyboardView: UIView {
         case .stick(let id):
             endStick(id)
             refreshStates()
-        case .edit:
-            onEdited?(layout)
+        case .edit(let op):
+            if let i = index[op.id], i < layout.keys.count, layout.keys[i] == op.orig,
+               hypot(t.location(in: self).x - op.start.x, t.location(in: self).y - op.start.y) < 8 {
+                onEditTap?(op.id)
+            } else {
+                onEdited?(layout)
+            }
         case .ignored:
             break
         }
@@ -610,5 +627,12 @@ final class KeyboardView: UIView {
             setNeedsLayout()
             layoutIfNeeded()
         }
+    }
+}
+
+private extension KeyDef {
+    var stickFloats: Bool {
+        if case .stick(let cfg) = action { return cfg.fixedCenter != true }
+        return false
     }
 }
