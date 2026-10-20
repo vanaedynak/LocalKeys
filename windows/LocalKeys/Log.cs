@@ -5,8 +5,9 @@ namespace LocalKeys;
 internal static class Log
 {
     private static readonly object Gate = new();
-    public static readonly string Dir = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LocalKeys");
+    public static readonly string Dir = Environment.GetEnvironmentVariable("LOCALKEYS_DATA_DIR") is { Length: > 0 } custom
+        ? custom
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "LocalKeys");
     public static readonly string FilePath = Path.Combine(Dir, "localkeys.log");
 
     public static void Info(string msg) => Write("INFO", msg);

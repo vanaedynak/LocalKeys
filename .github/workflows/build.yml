@@ -125,6 +125,16 @@ jobs:
           path: windows/dist/LocalKeys-Setup.exe
           if-no-files-found: error
 
+      - name: Portable build
+        shell: pwsh
+        run: Copy-Item windows/publish/LocalKeys.exe windows/dist/LocalKeys-Portable.exe
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalKeys-Windows-Portable
+          path: windows/dist/LocalKeys-Portable.exe
+          if-no-files-found: error
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: [version, ios, windows]
@@ -151,6 +161,7 @@ jobs:
           files: |
             dist/LocalKeys.ipa
             dist/LocalKeys-Setup.exe
+            dist/LocalKeys-Portable.exe
             dist/sidestore-source.json
           generate_release_notes: true
           make_latest: true
