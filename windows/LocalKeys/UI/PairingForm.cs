@@ -55,6 +55,16 @@ internal sealed class PairingForm : Form
         CancelButton = deny;
     }
 
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        int on = 1;
+        try { DwmSetWindowAttribute(Handle, 20, ref on, sizeof(int)); } catch { }
+    }
+
     private static Button MakeButton(string text, Color color, Point at)
     {
         var b = new Button

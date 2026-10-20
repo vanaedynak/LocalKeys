@@ -11,6 +11,7 @@ internal sealed class MainForm : Form
     private readonly Label _wifi = new();
     private readonly Label _usb = new();
     private readonly LinkLabel _usbFix = new();
+    private readonly LinkLabel _itunes = new();
     private readonly ListView _connected = new();
     private readonly ListView _trusted = new();
     private readonly CheckBox _autostart = new();
@@ -70,9 +71,11 @@ internal sealed class MainForm : Form
         _usbFix.ActiveLinkColor = Theme.Text;
         _usbFix.Text = "Установить Apple Devices (Microsoft Store)";
         _usbFix.LinkClicked += (_, _) => Open("ms-windows-store://pdp/?ProductId=9NP83LWLPZ9K");
-        var itunes = new LinkLabel { Text = "или iTunes с сайта Apple", AutoSize = true, LinkColor = Theme.Accent };
-        itunes.LinkClicked += (_, _) => Open("https://www.apple.com/itunes/download/win64");
-        flow.Controls.Add(Card("USB-C кабель", _usb, _usbFix, itunes));
+        _itunes.Text = "или iTunes с сайта Apple";
+        _itunes.AutoSize = true;
+        _itunes.LinkColor = Theme.Accent;
+        _itunes.LinkClicked += (_, _) => Open("https://www.apple.com/itunes/download/win64");
+        flow.Controls.Add(Card("USB-C кабель", _usb, _usbFix, _itunes));
 
         // Connected
         SetupList(_connected, ("Устройство", 170), ("Канал", 80), ("Адрес", 130), ("С", 110));
@@ -160,6 +163,16 @@ internal sealed class MainForm : Form
         lv.BorderStyle = BorderStyle.None;
         lv.Width = 510;
         foreach (var (name, width) in cols) lv.Columns.Add(name, width);
+        lv.OwnerDraw = true;
+        lv.DrawColumnHeader += (_, e) =>
+        {
+            using var bg = new SolidBrush(Theme.PanelBorder);
+            e.Graphics.FillRectangle(bg, e.Bounds);
+            TextRenderer.DrawText(e.Graphics, e.Header?.Text, Theme.Font(9f, FontStyle.Bold), e.Bounds with { X = e.Bounds.X + 4 },
+                Theme.Dim, TextFormatFlags.VerticalCenter | TextFormatFlags.Left);
+        };
+        lv.DrawItem += (_, e) => e.DrawDefault = true;
+        lv.DrawSubItem += (_, e) => e.DrawDefault = true;
     }
 
     private static Panel Card(string header, params Control[] content)
@@ -222,6 +235,7 @@ internal sealed class MainForm : Form
         {
             _usb.Text = "Выключено.";
             _usbFix.Visible = false;
+            _itunes.Visible = false;
         }
         else if (usbc.ServiceAvailable)
         {
@@ -230,12 +244,14 @@ internal sealed class MainForm : Form
                 : "Служба Apple найдена. Подключите iPad кабелем и нажмите «Доверять этому компьютеру» на iPad.";
             _usb.ForeColor = Theme.Text;
             _usbFix.Visible = false;
+            _itunes.Visible = false;
         }
         else
         {
             _usb.Text = "Для работы по кабелю нужна служба Apple Mobile Device (бесплатно, ставится один раз вместе с приложением Apple Devices или iTunes). Wi-Fi работает и без неё.";
             _usb.ForeColor = Theme.Warn;
             _usbFix.Visible = true;
+            _itunes.Visible = true;
         }
 
         var connSig = string.Join("|", authed.Select(s => s.GetHashCode()));
@@ -263,6 +279,16 @@ internal sealed class MainForm : Form
                 _trusted.Items.Add(new ListViewItem(new[] { d.Name, d.Added.ToString("dd.MM.yyyy"), d.LastSeen.ToString("dd.MM HH:mm") }) { Tag = d.Id });
             _trusted.EndUpdate();
         }
+    }
+
+    [System.Runtime.InteropServices.DllImport("dwmapi.dll")]
+    private static extern int DwmSetWindowAttribute(IntPtr hwnd, int attr, ref int value, int size);
+
+    protected override void OnHandleCreated(EventArgs e)
+    {
+        base.OnHandleCreated(e);
+        int on = 1;
+        try { DwmSetWindowAttribute(Handle, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, ref on, sizeof(int)); } catch { }
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)

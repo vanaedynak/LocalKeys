@@ -1,0 +1,63 @@
+name: iPad screenshots
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['ios/**', '.github/workflows/screenshots.yml']
+
+jobs:
+  screenshots:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Build for simulator
+        working-directory: ios
+        run: |
+          set -o pipefail
+          xcodegen generate
+          xcodebuild -project LocalKeys.xcodeproj -scheme LocalKeys -configuration Debug \
+            -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+
+      - name: Boot iPad simulator
+        run: |
+          DEVICE=$(xcrun simctl list devices available -j | python3 -c '
+          import json,sys
+          d=json.load(sys.stdin)["devices"]
+          c=[x for k,v in d.items() if "iOS" in k for x in v if "iPad Pro" in x["name"] and "13" in x["name"]]
+          c=c or [x for k,v in d.items() if "iOS" in k for x in v if "iPad Pro" in x["name"]]
+          c=c or [x for k,v in d.items() if "iOS" in k for x in v if "iPad" in x["name"]]
+          print(c[-1]["udid"])')
+          echo "DEVICE=$DEVICE" >> "$GITHUB_ENV"
+          xcrun simctl boot "$DEVICE"
+          xcrun simctl bootstatus "$DEVICE" -b
+          xcrun simctl install "$DEVICE" ios/build/Build/Products/Debug-iphonesimulator/LocalKeys.app
+
+      - name: Capture screenshots
+        run: |
+          mkdir -p shots
+          shoot() {
+            xcrun simctl terminate "$DEVICE" com.localkeys.app 2>/dev/null || true
+            SIMCTL_CHILD_LK_SCREENSHOT=1 SIMCTL_CHILD_LK_LANDSCAPE=1 SIMCTL_CHILD_LK_LAYOUT="$1" SIMCTL_CHILD_LK_THEME="${3:-midnight}" \
+              xcrun simctl launch "$DEVICE" com.localkeys.app
+            sleep 6
+            xcrun simctl io "$DEVICE" screenshot "shots/$2.png"
+          }
+          shoot builtin.laptop 1-laptop
+          shoot builtin.gaming 2-gaming
+          shoot builtin.stick 3-stick
+          shoot builtin.full 4-full light
+          shoot builtin.numpad 5-numpad graphite
+          shoot builtin.shortcuts 6-shortcuts neon
+          shoot builtin.trackpad 7-trackpad
+          ls -la shots
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ipad-screenshots
+          path: shots/
