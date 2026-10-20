@@ -45,6 +45,7 @@ internal sealed class TrayApp : ApplicationContext
         _core.PairingRequested += req => _ui.Post(_ => ShowPairing(req), null);
         _core.PairingCancelled += req => _ui.Post(_ => ClosePairing(req), null);
         _core.DeviceConnected += s => _ui.Post(_ => OnDeviceConnected(s), null);
+        _core.ShowRequested += () => _ui.Post(_ => ShowMain(), null);
 
         _showWait = ThreadPool.RegisterWaitForSingleObject(showEvent, (_, _) => _ui.Post(_ => ShowMain(), null), null, -1, false);
 

@@ -114,6 +114,8 @@ internal sealed class Session
 
     public bool IsClosed => _closed;
 
+    public bool IsLoopback => Transport == Transport.Wifi && (Remote == "127.0.0.1" || Remote == "::1");
+
     public override string ToString() => $"{Transport}:{DeviceName ?? Remote}";
 
     public static string Utf8(ReadOnlySpan<byte> data) => Encoding.UTF8.GetString(data);

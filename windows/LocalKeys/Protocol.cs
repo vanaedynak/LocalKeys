@@ -30,6 +30,7 @@ internal static class Protocol
     public const byte Scroll = 0x22;      // i16 vertical, i16 horizontal (1/120 notch units)
     public const byte Command = 0x30;     // iPad -> PC JSON CommandMsg
     public const byte PcState = 0x40;     // PC -> iPad JSON PcStateMsg
+    public const byte ShowUi = 0x50;      // local launcher -> agent (loopback only): open the window
 
     public static readonly JsonSerializerOptions Json = new()
     {

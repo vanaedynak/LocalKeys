@@ -89,7 +89,8 @@ final class KeyboardView: UIView {
         let themeChanged = theme.id != self.theme.id || gap != self.gap
         self.theme = theme
         self.gap = gap
-        if !built || layout != self.layout {
+        let dragging = bindings.values.contains { if case .edit = $0 { return true } else { return false } }
+        if !built || (layout != self.layout && !dragging) {
             if layout.id != self.layout.id || !editing { releaseAllTouches() }
             self.layout = layout
             rebuild()

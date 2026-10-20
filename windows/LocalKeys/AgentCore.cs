@@ -32,6 +32,7 @@ internal sealed class AgentCore : IDisposable
     public event Action<PairingRequest>? PairingCancelled;
     public event Action? SessionsChanged;
     public event Action<Session>? DeviceConnected;
+    public event Action? ShowRequested;
 
     public AgentCore(Config config)
     {
@@ -112,6 +113,12 @@ internal sealed class AgentCore : IDisposable
             return;
         }
         if (type == Protocol.Pong) return;
+        if (type == Protocol.ShowUi)
+        {
+            if (s.IsLoopback) ShowRequested?.Invoke();
+            s.Close();
+            return;
+        }
 
         if (!s.Authed)
         {

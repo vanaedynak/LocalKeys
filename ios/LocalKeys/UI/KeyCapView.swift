@@ -75,7 +75,11 @@ final class KeyCapView: ElementView {
 
     /// main: big centre text. top: small top-left (shifted symbol). alt: small bottom-right (second language).
     /// Text starting with "sf:" is an SF Symbol; "sf:name|Caption" shows an icon with a caption.
+    private var lastLegend: (String, String, String)?
+
     func setLegend(main: String, top: String = "", alt: String = "") {
+        if let l = lastLegend, l == (main, top, alt) { return }
+        lastLegend = (main, top, alt)
         if main.hasPrefix("sf:") {
             let body = String(main.dropFirst(3))
             let parts = body.split(separator: "|", maxSplits: 1).map(String.init)

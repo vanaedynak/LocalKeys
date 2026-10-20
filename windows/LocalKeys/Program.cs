@@ -3,6 +3,32 @@ using LocalKeys.UI;
 
 namespace LocalKeys;
 
+internal static class Launcher
+{
+    /// <summary>Asks a running agent (possibly elevated) to open its window, via the loopback socket.</summary>
+    public static bool RequestShow(int port, int attempts)
+    {
+        for (int i = 0; i < attempts; i++)
+        {
+            try
+            {
+                using var c = new System.Net.Sockets.TcpClient();
+                c.Connect(System.Net.IPAddress.Loopback, port);
+                var st = c.GetStream();
+                st.Write(new byte[] { 0, 1, Protocol.ShowUi });
+                st.Flush();
+                Thread.Sleep(100);
+                return true;
+            }
+            catch
+            {
+                Thread.Sleep(250);
+            }
+        }
+        return false;
+    }
+}
+
 internal static class Program
 {
     [STAThread]
@@ -13,10 +39,17 @@ internal static class Program
 
         bool autostart = args.Contains("--autostart");
 
-        // A manual launch (Start menu) is not elevated: hand over to the elevated scheduled task.
+        // A manual launch (Start menu) is not elevated: hand over to the elevated scheduled task
+        // and ask the elevated agent to show its window.
         if (!Elevation.IsElevated && !args.Contains("--no-elevate") && Autostart.TaskExists())
         {
-            if (Autostart.RunTask()) return 0;
+            int port = Config.Load().WifiPort;
+            if (Launcher.RequestShow(port, 1)) return 0;
+            if (Autostart.RunTask())
+            {
+                Launcher.RequestShow(port, 20);
+                return 0;
+            }
         }
 
         Mutex mutex;
