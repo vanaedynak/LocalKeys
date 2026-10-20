@@ -213,7 +213,7 @@ internal sealed class MainForm : Form
         var ips = WifiServer.LocalAddresses();
         if (wifi == null) _wifi.Text = "Выключено.";
         else if (wifi.Listening)
-            _wifi.Text = $"Готов, порт {_core.Config.WifiPort}. Автопоиск (Bonjour): {(wifi.Advertised ? "включён" : "недоступен — iPad найдёт ПК сканированием сети")}.\n" +
+            _wifi.Text = $"Готов, порт {_core.Config.WifiPort}. Автопоиск (Bonjour): {(wifi.Advertised ? "включён (" + wifi.AdvertisedOn + ")" : "недоступен — iPad найдёт ПК сканированием сети")}.\n" +
                          $"Адреса этого ПК: {(ips.Count > 0 ? string.Join(", ", ips) : "нет сети")}";
         else _wifi.Text = $"Ошибка: {wifi.Error}";
 

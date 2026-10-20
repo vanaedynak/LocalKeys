@@ -13,6 +13,7 @@ internal sealed class WifiServer : IDisposable
     private Thread? _thread;
     private volatile bool _stopped;
     private readonly MdnsAdvertiser _mdns;
+    private readonly System.Threading.Timer _readvertise;
 
     public bool Listening { get; private set; }
     public string? Error { get; private set; }
@@ -22,9 +23,11 @@ internal sealed class WifiServer : IDisposable
         _core = core;
         _port = port;
         _mdns = new MdnsAdvertiser(port);
+        _readvertise = new System.Threading.Timer(_ => _mdns.Restart(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
     public bool Advertised => _mdns.Registered;
+    public string AdvertisedOn => _mdns.Advertised;
 
     public void Start()
     {
@@ -37,8 +40,8 @@ internal sealed class WifiServer : IDisposable
 
     private void OnNetworkChanged(object? sender, EventArgs e)
     {
-        Log.Info("Network address changed, re-advertising");
-        _mdns.Restart();
+        // Address changes come in bursts (DHCP, adapters waking up): re-advertise once things settle.
+        _readvertise.Change(2500, Timeout.Infinite);
     }
 
     private void AcceptLoop()
@@ -77,33 +80,13 @@ internal sealed class WifiServer : IDisposable
         Listening = false;
     }
 
-    public static List<string> LocalAddresses()
-    {
-        var list = new List<string>();
-        try
-        {
-            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
-            {
-                if (ni.OperationalStatus != OperationalStatus.Up) continue;
-                if (ni.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
-                var props = ni.GetIPProperties();
-                foreach (var a in props.UnicastAddresses)
-                {
-                    if (a.Address.AddressFamily != AddressFamily.InterNetwork) continue;
-                    if (IPAddress.IsLoopback(a.Address)) continue;
-                    var s = a.Address.ToString();
-                    if (s.StartsWith("169.254.")) continue;
-                    list.Add(s);
-                }
-            }
-        }
-        catch { }
-        return list;
-    }
+    public static List<string> LocalAddresses() =>
+        NetUtil.LanInterfaces().Select(i => i.Address.ToString()).Distinct().ToList();
 
     public void Dispose()
     {
         _stopped = true;
+        _readvertise.Dispose();
         NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
         try { _listener?.Dispose(); } catch { }
         _mdns.Dispose();

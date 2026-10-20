@@ -1,6 +1,3 @@
-using System.Net;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
 using System.Runtime.InteropServices;
 
 namespace LocalKeys.Net;
@@ -8,6 +5,8 @@ namespace LocalKeys.Net;
 /// <summary>
 /// Advertises "_localkeys._tcp" via the Windows built-in DNS-SD API (dnsapi.dll, Windows 10 1809+),
 /// so the iPad finds the PC automatically — no IP addresses to type.
+/// One registration per physical LAN interface, each with that interface's own address,
+/// so VPN / Hyper-V / WSL adapters never end up in the advertisement.
 /// </summary>
 internal sealed class MdnsAdvertiser : IDisposable
 {
@@ -47,18 +46,16 @@ internal sealed class MdnsAdvertiser : IDisposable
 
     private readonly int _port;
     private readonly object _gate = new();
-    private IntPtr _request = IntPtr.Zero;
-    private IntPtr _instance = IntPtr.Zero;
-    private IntPtr _ip4 = IntPtr.Zero;
+    private readonly List<IntPtr> _requests = new();
 
     public bool Registered { get; private set; }
+    public string Advertised { get; private set; } = "";
 
     public MdnsAdvertiser(int port) => _port = port;
 
     private static void OnComplete(uint status, IntPtr context, IntPtr instance)
     {
         if (status != 0) Log.Warn($"mDNS registration completed with status {status}");
-        else Log.Info("mDNS registration complete");
         if (instance != IntPtr.Zero) DnsServiceFreeInstance(instance);
     }
 
@@ -68,41 +65,25 @@ internal sealed class MdnsAdvertiser : IDisposable
         {
             try
             {
-                var ip = PrimaryIPv4();
                 var host = Environment.MachineName;
                 var serviceName = $"{Sanitize(host)}.{Protocol.BonjourType}.local";
                 var hostName = $"{host}.local";
+                var lans = NetUtil.LanInterfaces();
+                var done = new List<string>();
 
-                if (ip != null)
+                if (lans.Count == 0)
                 {
-                    _ip4 = Marshal.AllocHGlobal(4);
-                    Marshal.Copy(ip.GetAddressBytes(), 0, _ip4, 4);
+                    // Nothing recognisable: let Windows pick (all interfaces, its own host records).
+                    if (Register(serviceName, hostName, 0, null)) done.Add("any");
                 }
-
-                _instance = DnsServiceConstructInstance(serviceName, hostName, _ip4, IntPtr.Zero,
-                    (ushort)_port, 0, 0, 1, new[] { "v" }, new[] { Protocol.Version.ToString() });
-                if (_instance == IntPtr.Zero)
+                foreach (var lan in lans)
                 {
-                    Log.Warn("DnsServiceConstructInstance failed");
-                    return;
+                    if (Register(serviceName, hostName, (uint)lan.Index, lan.Address.GetAddressBytes()))
+                        done.Add($"{lan.Name}={lan.Address}");
                 }
-
-                var req = new DNS_SERVICE_REGISTER_REQUEST
-                {
-                    Version = 1,
-                    InterfaceIndex = 0,
-                    pServiceInstance = _instance,
-                    pRegisterCompletionCallback = CallbackPtr,
-                    pQueryContext = IntPtr.Zero,
-                    hCredentials = IntPtr.Zero,
-                    unicastEnabled = 0,
-                };
-                _request = Marshal.AllocHGlobal(Marshal.SizeOf<DNS_SERVICE_REGISTER_REQUEST>());
-                Marshal.StructureToPtr(req, _request, false);
-
-                uint r = DnsServiceRegister(_request, IntPtr.Zero);
-                Registered = r == DNS_REQUEST_PENDING;
-                Log.Info($"mDNS register {serviceName} ip={ip} -> {r}");
+                Registered = done.Count > 0;
+                Advertised = string.Join(", ", done);
+                Log.Info($"mDNS {serviceName}: {(Registered ? Advertised : "failed")}");
             }
             catch (Exception ex)
             {
@@ -113,20 +94,47 @@ internal sealed class MdnsAdvertiser : IDisposable
         }
     }
 
+    private bool Register(string serviceName, string hostName, uint ifIndex, byte[]? ipv4)
+    {
+        IntPtr ip = IntPtr.Zero;
+        if (ipv4 != null)
+        {
+            ip = Marshal.AllocHGlobal(4);
+            Marshal.Copy(ipv4, 0, ip, 4);
+        }
+        var instance = DnsServiceConstructInstance(serviceName, hostName, ip, IntPtr.Zero,
+            (ushort)_port, 0, 0, 1, new[] { "v" }, new[] { Protocol.Version.ToString() });
+        if (instance == IntPtr.Zero) return false;
+
+        var req = new DNS_SERVICE_REGISTER_REQUEST
+        {
+            Version = 1,
+            InterfaceIndex = ifIndex,
+            pServiceInstance = instance,
+            pRegisterCompletionCallback = CallbackPtr,
+        };
+        var mem = Marshal.AllocHGlobal(Marshal.SizeOf<DNS_SERVICE_REGISTER_REQUEST>());
+        Marshal.StructureToPtr(req, mem, false);
+        uint r = DnsServiceRegister(mem, IntPtr.Zero);
+        if (r != DNS_REQUEST_PENDING)
+        {
+            Log.Warn($"DnsServiceRegister(if={ifIndex}) -> {r}");
+            return false;
+        }
+        _requests.Add(mem);
+        return true;
+    }
+
     private void StopInternal()
     {
-        try
+        foreach (var req in _requests)
         {
-            if (_request != IntPtr.Zero && Registered)
-                DnsServiceDeRegister(_request, IntPtr.Zero);
+            try { DnsServiceDeRegister(req, IntPtr.Zero); } catch { }
         }
-        catch { }
+        // Request/instance memory is intentionally not freed: the API may still reference it
+        // asynchronously, and it is a few hundred bytes per network change.
+        _requests.Clear();
         Registered = false;
-        // The request/instance memory is intentionally leaked on re-registration: the API may still
-        // reference it asynchronously and it is a few hundred bytes per network change.
-        _request = IntPtr.Zero;
-        _instance = IntPtr.Zero;
-        _ip4 = IntPtr.Zero;
     }
 
     public void Restart()
@@ -137,28 +145,6 @@ internal sealed class MdnsAdvertiser : IDisposable
     }
 
     private static string Sanitize(string s) => new(s.Where(c => c != '.' && c != '\\').ToArray());
-
-    public static IPAddress? PrimaryIPv4()
-    {
-        try
-        {
-            IPAddress? fallback = null;
-            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
-            {
-                if (ni.OperationalStatus != OperationalStatus.Up) continue;
-                if (ni.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
-                var p = ni.GetIPProperties();
-                var addr = p.UnicastAddresses.FirstOrDefault(a => a.Address.AddressFamily == AddressFamily.InterNetwork
-                                                                 && !a.Address.ToString().StartsWith("169.254."))?.Address;
-                if (addr == null) continue;
-                if (p.GatewayAddresses.Any(g => g.Address.AddressFamily == AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any)))
-                    return addr;
-                fallback ??= addr;
-            }
-            return fallback;
-        }
-        catch { return null; }
-    }
 
     public void Dispose()
     {
