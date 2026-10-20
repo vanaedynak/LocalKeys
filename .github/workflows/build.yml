@@ -53,17 +53,8 @@ jobs:
       - name: Build (unsigned)
         working-directory: ios
         run: |
-          set -o pipefail
-          xcodebuild \
-            -project LocalKeys.xcodeproj \
-            -scheme LocalKeys \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath build \
-            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
-            build 2>&1 | tee build.log | grep -E "error:|warning: unreachable|BUILD (SUCCEEDED|FAILED)|\*\* " || true
-          test -d build/Build/Products/Release-iphoneos/LocalKeys.app || { grep -E "error" build.log | head -50; exit 1; }
+          xcodebuild             -project LocalKeys.xcodeproj             -scheme LocalKeys             -configuration Release             -sdk iphoneos             -destination 'generic/platform=iOS'             -derivedDataPath build             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""             build > build.log 2>&1 || { grep -E "error" build.log | head -40; exit 1; }
+          test -f build/Build/Products/Release-iphoneos/LocalKeys.app/LocalKeys
 
       - name: Package IPA
         working-directory: ios

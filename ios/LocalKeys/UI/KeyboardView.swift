@@ -646,8 +646,14 @@ final class KeyboardView: UIView {
         let dy = Double((p.y - op.start.y) / uy)
         // Magnet: edges stick to the edges of other elements and of the screen when close.
         let others = layout.keys.filter { $0.id != op.id }
-        let xs = [0, layout.cols] + others.flatMap { [$0.x, $0.x + $0.w] }
-        let ys = [0, layout.rows] + others.flatMap { [$0.y, $0.y + $0.h] }
+        var xs: [Double] = [0, layout.cols]
+        var ys: [Double] = [0, layout.rows]
+        for o in others {
+            xs.append(o.x)
+            xs.append(o.x + o.w)
+            ys.append(o.y)
+            ys.append(o.y + o.h)
+        }
         let thr = 0.12
         func r2(_ v: Double) -> Double { (v * 100).rounded() / 100 }
         func magnetPos(_ v: Double, _ size: Double, _ cands: [Double]) -> Double {

@@ -22,7 +22,7 @@ jobs:
           xcodegen generate
           xcodebuild -project LocalKeys.xcodeproj -scheme LocalKeys -configuration Debug \
             -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' \
-            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build 2>&1 | tail -5
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build > build.log 2>&1 || { grep -E 'error' build.log | head -30; exit 1; }
 
       - name: Boot iPad simulator
         run: |
