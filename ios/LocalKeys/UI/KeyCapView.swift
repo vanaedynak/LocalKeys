@@ -36,6 +36,9 @@ final class KeyCapView: ElementView {
     private let mainLabel = UILabel()
     private let topLabel = UILabel()
     private let altLabel = UILabel()
+    private let fnLabel = UILabel()
+    /// True while the Fn layer is active and this key has an Fn action.
+    var fnLayer = false { didSet { if fnLayer != oldValue { applyColors() } } }
     private let captionLabel = UILabel()
     private let icon = UIImageView()
     private let led = UIView()
@@ -55,7 +58,7 @@ final class KeyCapView: ElementView {
         super.init(frame: frame)
         layer.cornerRadius = 9
         layer.cornerCurve = .continuous
-        for l in [mainLabel, topLabel, altLabel, captionLabel] {
+        for l in [mainLabel, topLabel, altLabel, captionLabel, fnLabel] {
             l.textAlignment = .center
             l.adjustsFontSizeToFitWidth = true
             l.minimumScaleFactor = 0.45
@@ -64,6 +67,7 @@ final class KeyCapView: ElementView {
         }
         topLabel.textAlignment = .left
         altLabel.textAlignment = .right
+        fnLabel.textAlignment = .left
         icon.contentMode = .scaleAspectFit
         addSubview(icon)
         led.layer.cornerRadius = 2.5
@@ -75,11 +79,12 @@ final class KeyCapView: ElementView {
 
     /// main: big centre text. top: small top-left (shifted symbol). alt: small bottom-right (second language).
     /// Text starting with "sf:" is an SF Symbol; "sf:name|Caption" shows an icon with a caption.
-    private var lastLegend: (String, String, String)?
+    private var lastLegend: (String, String, String, String)?
 
-    func setLegend(main: String, top: String = "", alt: String = "") {
-        if let l = lastLegend, l == (main, top, alt) { return }
-        lastLegend = (main, top, alt)
+    func setLegend(main: String, top: String = "", alt: String = "", fn: String = "") {
+        if let l = lastLegend, l == (main, top, alt, fn) { return }
+        lastLegend = (main, top, alt, fn)
+        fnLabel.text = fn
         if main.hasPrefix("sf:") {
             let body = String(main.dropFirst(3))
             let parts = body.split(separator: "|", maxSplits: 1).map(String.init)
@@ -122,13 +127,14 @@ final class KeyCapView: ElementView {
         case .danger: base = theme.keyDanger
         case .normal: base = theme.key
         }
-        backgroundColor = pressed ? theme.pressed : base
+        backgroundColor = pressed ? theme.pressed : (fnLayer ? base.blended(with: theme.latched, 0.22) : base)
         let fg: UIColor = pressed ? (theme.isLight ? .white : UIColor(white: 0.04, alpha: 1)) :
             ((style == .accent || style == .danger) ? .white : theme.text)
         mainLabel.textColor = fg
         captionLabel.textColor = (pressed || style == .accent || style == .danger) ? fg.withAlphaComponent(0.92) : theme.textDim
         icon.tintColor = fg
         topLabel.textColor = pressed ? fg.withAlphaComponent(0.8) : theme.textDim
+        fnLabel.textColor = pressed ? fg.withAlphaComponent(0.8) : theme.latched.withAlphaComponent(0.85)
         altLabel.textColor = pressed ? fg.withAlphaComponent(0.8) : theme.accent.withAlphaComponent(0.85)
         led.isHidden = ledOn == nil
         led.backgroundColor = (ledOn ?? false) ? theme.latched : theme.textDim.withAlphaComponent(0.25)
@@ -178,6 +184,8 @@ final class KeyCapView: ElementView {
         }
         topLabel.frame = CGRect(x: inset, y: inset * 0.6, width: w - inset * 2, height: small * 1.3)
         altLabel.frame = CGRect(x: inset, y: h - inset * 0.6 - small * 1.3, width: w - inset * 2, height: small * 1.3)
+        fnLabel.font = .systemFont(ofSize: max(small * 0.85, 7.5), weight: .semibold)
+        fnLabel.frame = CGRect(x: inset, y: h - inset * 0.6 - small * 1.3, width: (w - inset * 2) * (altText.isEmpty ? 1 : 0.6), height: small * 1.3)
         led.frame = CGRect(x: w - inset - 6, y: inset, width: 6, height: 6)
         layer.cornerRadius = min(10, unit * 0.16)
     }

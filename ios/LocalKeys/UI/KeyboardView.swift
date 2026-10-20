@@ -7,6 +7,10 @@ final class KeyboardView: UIView {
     private(set) var layout: KBLayout = BuiltinLayouts.laptop
     private var theme: KTheme = .midnight
     private var gap: CGFloat = 5
+    private var vpos: CGFloat = 0.5
+    private var scale: CGFloat = 1
+    /// Number of Fn keys currently held: the second layer is active while > 0.
+    private var fnHeld = 0
     private(set) var editing = false
     private(set) var selectedId: UUID?
 
@@ -29,7 +33,7 @@ final class KeyboardView: UIView {
     }
 
     private enum Binding {
-        case key(UUID)
+        case key(UUID, Bool)   // element, pressed on the Fn layer
         case zone(UUID)
         case stick(UUID)
         case edit(EditOp)
@@ -81,7 +85,13 @@ final class KeyboardView: UIView {
 
     // MARK: configuration
 
-    func apply(layout: KBLayout, theme: KTheme, gap: CGFloat, editing: Bool, selectedId: UUID?, settingsVersion: Int) {
+    func apply(layout: KBLayout, theme: KTheme, gap: CGFloat, editing: Bool, selectedId: UUID?,
+               vpos: CGFloat, scale: CGFloat) {
+        if vpos != self.vpos || scale != self.scale {
+            self.vpos = vpos
+            self.scale = scale
+            setNeedsLayout()
+        }
         if editing != self.editing {
             releaseAllTouches()
             self.editing = editing
@@ -176,10 +186,13 @@ final class KeyboardView: UIView {
         // Allow keys to be somewhat taller or wider than square to use the screen well.
         if y > x * 1.3 { y = x * 1.3 }
         if x > y * 1.6 { x = y * 1.6 }
+        x *= scale
+        y *= scale
         ux = x
         uy = y
         let w = x * CGFloat(layout.cols), h = y * CGFloat(layout.rows)
-        let ox = (bounds.width - w) / 2, oy = (bounds.height - h) / 2
+        let ox = (bounds.width - w) / 2
+        let oy = max(0, bounds.height - h) * min(max(vpos, 0), 1)
         for k in layout.keys {
             let cell = CGRect(x: ox + CGFloat(k.x) * x, y: oy + CGFloat(k.y) * y, width: CGFloat(k.w) * x, height: CGFloat(k.h) * y)
             cells[k.id] = cell
@@ -223,7 +236,31 @@ final class KeyboardView: UIView {
 
     private func isLetter(_ s: String) -> Bool { s.first?.isLetter ?? false }
 
+    private func effective(_ k: KeyDef, _ fn: Bool) -> KeyDef {
+        guard fn, let f = k.fn else { return k }
+        var e = k
+        e.action = f
+        e.label = nil
+        e.toggle = false
+        e.fn = nil
+        return e
+    }
+
+    private func fnHint(_ k: KeyDef) -> String {
+        guard let f = k.fn else { return "" }
+        switch f {
+        case .key(let c): return KeyCatalog.short(c)
+        case .combo(let cs): return cs.map { KeyCatalog.short($0) }.joined(separator: "+")
+        default:
+            let cap = KeyDef(x: 0, y: 0, w: 1, h: 1, action: f).defaultCap()
+            return cap.hasPrefix("sf:") ? "Fn" : cap
+        }
+    }
+
     private func legend(for k: KeyDef) -> (String, String, String) {
+        if fnHeld > 0, k.fn != nil {
+            return legend(for: effective(k, true))
+        }
         if let l = k.label, !l.isEmpty { return (l, "", "") }
         guard case .key(let c) = k.action else { return (k.defaultCap(), "", "") }
         if c == KC.space {
@@ -254,7 +291,8 @@ final class KeyboardView: UIView {
         for k in layout.keys {
             guard let c = views[k.id] as? KeyCapView else { continue }
             let (main, top, alt) = legend(for: k)
-            c.setLegend(main: main, top: top, alt: alt)
+            c.setLegend(main: main, top: top, alt: alt, fn: fnHeld > 0 ? "" : fnHint(k))
+            c.fnLayer = fnHeld > 0 && k.fn != nil
             if case .key(let code) = k.action {
                 switch code {
                 case KC.caps: c.ledOn = pc?.caps ?? false
@@ -330,6 +368,9 @@ final class KeyboardView: UIView {
         case .special(let sp):
             switch sp {
             case .langSwitch: input.tapCombo(settings.langComboCodes)
+            case .fn:
+                fnHeld += 1
+                updateLegends()
             case .releaseAll:
                 releaseAllTouches()
                 input.releaseAll()
@@ -349,6 +390,10 @@ final class KeyboardView: UIView {
             case .mouse(let b): input.mouseUp(b)
             case .special(let sp):
                 if sp == .textPanel || sp == .nextLayout { onSpecial?(sp) }
+                if sp == .fn {
+                    fnHeld = max(0, fnHeld - 1)
+                    updateLegends()
+                }
             case .switchLayout(let id): onSwitchLayout?(id)
             default: break
             }
@@ -360,8 +405,11 @@ final class KeyboardView: UIView {
     func releaseAllTouches() {
         for (_, b) in bindings {
             switch b {
-            case .key(let id):
-                if let k = keyDef(id), !k.toggle { keyUp(k) }
+            case .key(let id, let fn):
+                if let k = keyDef(id) {
+                    let e = effective(k, fn)
+                    if !e.toggle { keyUp(e) }
+                }
             case .zone(let id):
                 zones[id]?.cancelAll()
                 (views[id] as? ZoneView)?.active = false
@@ -371,6 +419,7 @@ final class KeyboardView: UIView {
             }
         }
         bindings.removeAll()
+        fnHeld = 0
         for id in toggled {
             if let k = keyDef(id) { releaseRaw(k) }
         }
@@ -470,8 +519,9 @@ final class KeyboardView: UIView {
             bindings[key] = .stick(k.id)
             updateStick(k.id, p)
         default:
-            bindings[key] = .key(k.id)
-            keyDown(k)
+            let fn = fnHeld > 0 && k.fn != nil
+            bindings[key] = .key(k.id, fn)
+            keyDown(effective(k, fn))
         }
     }
 
@@ -480,11 +530,12 @@ final class KeyboardView: UIView {
         guard let b = bindings[key] else { return }
         let p = t.location(in: self)
         switch b {
-        case .key(let id):
+        case .key(let id, let fn):
             guard layout.glide, let k2 = element(at: p), k2.id != id, !k2.action.isZone, let k1 = keyDef(id) else { return }
-            keyUp(k1)
-            bindings[key] = .key(k2.id)
-            keyDown(k2)
+            keyUp(effective(k1, fn))
+            let fn2 = fnHeld > 0 && k2.fn != nil
+            bindings[key] = .key(k2.id, fn2)
+            keyDown(effective(k2, fn2))
         case .zone(let id):
             zones[id]?.moved(t, event: event, in: self)
         case .stick(let id):
@@ -500,8 +551,8 @@ final class KeyboardView: UIView {
         let key = ObjectIdentifier(t)
         guard let b = bindings.removeValue(forKey: key) else { return }
         switch b {
-        case .key(let id):
-            if let k = keyDef(id) { keyUp(k) }
+        case .key(let id, let fn):
+            if let k = keyDef(id) { keyUp(effective(k, fn)) }
         case .zone(let id):
             zones[id]?.ended(t, cancelled: cancelled)
             if zones[id]?.isActive == false { (views[id] as? ZoneView)?.active = false }

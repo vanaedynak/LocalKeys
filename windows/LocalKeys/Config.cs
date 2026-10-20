@@ -19,6 +19,7 @@ internal sealed class Config
     public bool UsbEnabled { get; set; } = true;
     public int WifiPort { get; set; } = Protocol.WifiPort;
     public bool ShowConnectNotifications { get; set; } = true;
+    public bool AutoUpdate { get; set; } = true;
     public List<TrustedDevice> Devices { get; set; } = new();
 
     private static readonly object Gate = new();

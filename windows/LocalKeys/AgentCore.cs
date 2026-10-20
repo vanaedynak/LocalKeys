@@ -21,6 +21,7 @@ internal sealed class AgentCore : IDisposable
     public LayoutMonitor Layouts { get; } = new();
     public WifiServer? Wifi { get; private set; }
     public UsbMuxClient? Usb { get; private set; }
+    public Updater Updater { get; }
 
     private readonly object _gate = new();
     private readonly List<Session> _sessions = new();
@@ -37,6 +38,7 @@ internal sealed class AgentCore : IDisposable
     public AgentCore(Config config)
     {
         Config = config;
+        Updater = new Updater(config);
         Layouts.Changed += state => Broadcast(s => s.SendJson(Protocol.PcState, state));
     }
 
@@ -292,6 +294,7 @@ internal sealed class AgentCore : IDisposable
     public void Dispose()
     {
         ReleaseEverything();
+        Updater.Dispose();
         Wifi?.Dispose();
         Usb?.Dispose();
         foreach (var s in Sessions()) s.Close();

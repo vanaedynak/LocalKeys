@@ -121,6 +121,27 @@ struct KeyInspectorView: View {
                     Text("Подсказка: «sf:имя_символа|Текст» показывает значок SF Symbols с подписью.")
                 }
 
+                if !key.action.isZone {
+                    Section {
+                        Toggle("Другое действие при зажатом Fn", isOn: Binding(
+                            get: { key.fn != nil },
+                            set: { key.fn = $0 ? .key(KC.f(1)) : nil }))
+                        if case .key(let fnCode)? = key.fn {
+                            NavigationLink {
+                                KeyPickerView(selection: Binding(get: { fnCode }, set: { key.fn = .key($0) }), title: "Клавиша с Fn")
+                            } label: {
+                                HStack { Text("Fn + эта клавиша"); Spacer(); Text(KeyCatalog.name(fnCode)).foregroundColor(.secondary) }
+                            }
+                        } else if key.fn != nil {
+                            Text("Задано особое действие").foregroundColor(.secondary)
+                        }
+                    } header: {
+                        Text("Слой Fn")
+                    } footer: {
+                        Text("Работает, пока зажата клавиша с действием «Fn (второй слой)», как на компактных клавиатурах.")
+                    }
+                }
+
                 Section("Положение и размер (в клавишах)") {
                     stepper("Ширина", $key.w, 0.5...20)
                     stepper("Высота", $key.h, 0.5...12)

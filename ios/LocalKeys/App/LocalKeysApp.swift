@@ -12,6 +12,9 @@ struct LocalKeysApp: App {
             AppSettings.shared.onboardingDone = true
             if let l = env["LK_LAYOUT"] { LayoutStore.shared.currentId = l }
             if let t = env["LK_THEME"] { AppSettings.shared.themeId = t }
+            if let v = env["LK_VPOS"], let d = Double(v) {
+                AppSettings.shared.setPlacement(LayoutStore.shared.currentId, vpos: d, scale: 0.85)
+            }
         }
     }
 

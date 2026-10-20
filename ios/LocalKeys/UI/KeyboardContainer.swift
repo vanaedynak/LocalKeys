@@ -18,7 +18,8 @@ struct KeyboardContainer: UIViewControllerRepresentable {
     var gap: Double
     var editing: Bool
     var selectedId: UUID?
-    var settingsVersion: Int
+    var vpos: Double
+    var scale: Double
     var onSelect: (UUID?) -> Void
     var onEdited: (KBLayout) -> Void
     var onSpecial: (SpecialAction) -> Void
@@ -35,6 +36,6 @@ struct KeyboardContainer: UIViewControllerRepresentable {
         kb.onSpecial = onSpecial
         kb.onSwitchLayout = onSwitchLayout
         kb.apply(layout: layout, theme: theme, gap: CGFloat(gap), editing: editing,
-                 selectedId: selectedId, settingsVersion: settingsVersion)
+                 selectedId: selectedId, vpos: CGFloat(vpos), scale: CGFloat(scale))
     }
 }

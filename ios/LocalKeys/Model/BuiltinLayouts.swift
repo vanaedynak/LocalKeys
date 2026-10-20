@@ -22,6 +22,12 @@ private struct LB {
 
     mutating func gap(_ w: Double) { x += w }
 
+    /// Adds a key with a second action on the Fn layer.
+    mutating func kf(_ code: UInt16, _ w: Double = 1, fn: KeyAction?, _ style: KeyStyle = .auto) {
+        keys.append(KeyDef(x: x, y: y, w: w, h: h, action: .key(code), style: style, fn: fn))
+        x += w
+    }
+
     mutating func put(_ action: KeyAction, _ x: Double, _ y: Double, _ w: Double, _ h: Double,
                       _ label: String? = nil, _ style: KeyStyle = .auto, toggle: Bool = false) {
         keys.append(KeyDef(x: x, y: y, w: w, h: h, action: action, label: label, toggle: toggle, style: style))
@@ -33,7 +39,58 @@ private struct LB {
 }
 
 enum BuiltinLayouts {
-    static var all: [KBLayout] { [laptop, full, gaming, gamingStick, trackpad, numpad, shortcuts] }
+    static var all: [KBLayout] { [laptop, full, darkProject68, gaming, gamingStick, trackpad, numpad, shortcuts] }
+
+    /// 65% / 68 keys, modelled after Dark Project 68 Sunrise (ANSI): no F-row and no nav cluster,
+    /// right column `~ / Del / PgUp / PgDn, arrows; F1–F12 and media on the Fn layer.
+    static var darkProject68: KBLayout {
+        var b = LB()
+        b.row(0)
+        b.k(KC.esc)
+        for n in 1...9 { b.kf(KC.digit(n), fn: .key(KC.f(n))) }
+        b.kf(KC.digit(0), fn: .key(KC.f(10)))
+        b.kf(0x0C, fn: .key(KC.f(11)))
+        b.kf(0x0D, fn: .key(KC.f(12)))
+        b.kf(KC.backspace, 2, fn: .key(KC.del))
+        b.kf(0x29, fn: .key(KC.prtSc), .mod)
+
+        b.row(1)
+        b.k(KC.tab, 1.5)
+        for c in UInt16(0x10)...0x18 { b.k(c) }
+        b.kf(KC.p, fn: .key(KC.prtSc))
+        b.kf(0x1A, fn: .key(KC.scrollLock))
+        b.kf(0x1B, fn: .key(KC.pause))
+        b.k(0x2B, 1.5)
+        b.kf(KC.del, fn: .key(KC.ins))
+
+        b.row(2)
+        b.k(KC.caps, 1.75)
+        for c in UInt16(0x1E)...0x28 { b.k(c) }
+        b.k(KC.enter, 2.25)
+        b.kf(KC.pgUp, fn: .key(KC.home))
+
+        b.row(3)
+        b.k(KC.lshift, 2.25)
+        for c in UInt16(0x2C)...0x31 { b.k(c) }
+        b.kf(KC.m, fn: .key(KC.volMute))
+        for c in UInt16(0x33)...0x35 { b.k(c) }
+        b.k(KC.rshift, 1.75)
+        b.kf(KC.up, fn: .key(KC.volUp))
+        b.kf(KC.pgDn, fn: .key(KC.end))
+
+        b.row(4)
+        b.k(KC.lctrl, 1.25)
+        b.k(KC.lwin, 1.25)
+        b.k(KC.lalt, 1.25)
+        b.kf(KC.space, 6.25, fn: .key(KC.playPause))
+        b.k(KC.ralt)
+        b.a(.special(.fn), 1, nil, .accent)
+        b.k(KC.rctrl)
+        b.kf(KC.left, fn: .key(KC.prevTrack))
+        b.kf(KC.down, fn: .key(KC.volDown))
+        b.kf(KC.right, fn: .key(KC.nextTrack))
+        return KBLayout(id: "builtin.dp68", name: "Dark Project 68", icon: "keyboard.badge.ellipsis", cols: 16, rows: 5, keys: b.keys, builtIn: true)
+    }
 
     /// 75% keyboard (16u wide) — the main typing area.
     private static func keyboard75(_ b: inout LB, top: Double = 0) {

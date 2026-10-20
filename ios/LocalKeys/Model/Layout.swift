@@ -5,6 +5,7 @@ enum SpecialAction: String, Codable, CaseIterable, Identifiable {
     case textPanel
     case nextLayout
     case releaseAll
+    case fn
 
     var id: String { rawValue }
     var title: String {
@@ -13,6 +14,7 @@ enum SpecialAction: String, Codable, CaseIterable, Identifiable {
         case .textPanel: return "Панель ввода текста"
         case .nextLayout: return "Следующая раскладка"
         case .releaseAll: return "Отпустить всё"
+        case .fn: return "Fn (второй слой)"
         }
     }
     var cap: String {
@@ -21,6 +23,7 @@ enum SpecialAction: String, Codable, CaseIterable, Identifiable {
         case .textPanel: return "sf:character.cursor.ibeam"
         case .nextLayout: return "sf:rectangle.2.swap"
         case .releaseAll: return "sf:hand.raised.slash"
+        case .fn: return "Fn"
         }
     }
 }
@@ -79,6 +82,8 @@ struct KeyDef: Codable, Hashable, Identifiable {
     /// Tap to latch, tap again to release (e.g. auto-run in games).
     var toggle: Bool = false
     var style: KeyStyle = .auto
+    /// Action while an Fn key is held (second layer, like on compact keyboards). nil = same as normal.
+    var fn: KeyAction? = nil
 }
 
 struct KBLayout: Codable, Hashable, Identifiable {

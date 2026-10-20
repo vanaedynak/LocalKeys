@@ -51,6 +51,8 @@ Name: "{autoprograms}\LocalKeys"; Filename: "{app}\LocalKeys.exe"
 [Run]
 Filename: "{app}\LocalKeys.exe"; Parameters: "--install"; Flags: runhidden waituntilterminated; StatusMsg: "{cm:Configuring}"
 Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN LocalKeys"; Flags: runhidden nowait postinstall; Description: "{cm:LaunchApp}"
+; Silent (auto-)update: always restart the agent.
+Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN LocalKeys"; Flags: runhidden nowait; Check: WizardSilent
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM LocalKeys.exe"; Flags: runhidden waituntilterminated; RunOnceId: "KillAgent"

@@ -99,6 +99,29 @@ enum KeyCatalog {
     }()
 
     static func cap(_ code: UInt16) -> String { byCode[code]?.cap ?? String(format: "%04X", code) }
+    /// Short text-only legend (for small Fn hints on keycaps).
+    static func short(_ code: UInt16) -> String {
+        let c = cap(code)
+        if !c.hasPrefix("sf:") { return c }
+        switch code {
+        case KC.up: return "↑"
+        case KC.down: return "↓"
+        case KC.left: return "←"
+        case KC.right: return "→"
+        case KC.lwin, KC.rwin: return "Win"
+        case KC.backspace: return "⌫"
+        case KC.menu: return "Menu"
+        case KC.volMute: return "Mute"
+        case KC.volDown: return "Vol−"
+        case KC.volUp: return "Vol+"
+        case KC.playPause: return "⏯"
+        case KC.nextTrack: return "⏭"
+        case KC.prevTrack: return "⏮"
+        case KC.stopMedia: return "■"
+        default: return name(code)
+        }
+    }
+
     static func name(_ code: UInt16) -> String { byCode[code]?.name ?? String(format: "Код %04X", code) }
 
     private static func build() -> [KeyInfo] {

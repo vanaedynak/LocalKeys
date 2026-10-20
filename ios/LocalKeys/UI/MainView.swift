@@ -37,7 +37,8 @@ struct MainView: View {
                               gap: settings.keyGap,
                               editing: editing,
                               selectedId: selectedId,
-                              settingsVersion: 0,
+                              vpos: settings.vpos(layout.id),
+                              scale: settings.scale(layout.id),
                               onSelect: { selectedId = $0 },
                               onEdited: { l in
                                   editLayout = l
@@ -191,6 +192,7 @@ struct TopBar: View {
     let theme: KTheme
     var onOpen: (SheetKind) -> Void
     var onEdit: () -> Void
+    @State private var showPlacement = false
 
     var body: some View {
         HStack(spacing: 10) {
@@ -221,6 +223,10 @@ struct TopBar: View {
 
             langMenu
 
+            barButton("arrow.up.and.down.square") { showPlacement.toggle() }
+                .popover(isPresented: $showPlacement, arrowEdge: .top) {
+                    PlacementView(layoutId: store.currentId, layoutName: store.current.name)
+                }
             barButton("character.cursor.ibeam") { onOpen(.text) }
             barButton("slider.horizontal.3") { onEdit() }
             barButton("square.stack.3d.up") { onOpen(.layouts) }
@@ -388,5 +394,69 @@ struct PairingOverlay: View {
             .background(RoundedRectangle(cornerRadius: 24).fill(Color(uiColor: theme.bar)))
             .padding(40)
         }
+    }
+}
+
+// MARK: - Placement (height / size of the keyboard, per layout)
+
+struct PlacementView: View {
+    @ObservedObject private var s = AppSettings.shared
+    let layoutId: String
+    let layoutName: String
+
+    var body: some View {
+        let vpos = s.vpos(layoutId)
+        let scale = s.scale(layoutId)
+        VStack(alignment: .leading, spacing: 16) {
+            Text("Положение: \(layoutName)").font(.headline)
+
+            HStack(spacing: 10) {
+                VStack(spacing: 8) {
+                    nudge("chevron.up") { s.setPlacement(layoutId, vpos: vpos - 0.05) }
+                    nudge("chevron.down") { s.setPlacement(layoutId, vpos: vpos + 0.05) }
+                }
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Высота на экране").font(.subheadline)
+                    HStack {
+                        preset("Вверху", 0)
+                        preset("По центру", 0.5)
+                        preset("Внизу", 1)
+                    }
+                    Slider(value: Binding(get: { vpos }, set: { s.setPlacement(layoutId, vpos: $0) }), in: 0...1)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Размер клавиатуры").font(.subheadline)
+                    Spacer()
+                    Text("\(Int((scale * 100).rounded()))%").monospacedDigit().foregroundColor(.secondary)
+                }
+                Slider(value: Binding(get: { scale }, set: { s.setPlacement(layoutId, scale: $0) }), in: 0.5...1)
+            }
+
+            Button("Сбросить") { s.placements[layoutId] = nil }
+                .font(.subheadline)
+            Text("Настраивается отдельно для каждой раскладки и запоминается.")
+                .font(.caption).foregroundColor(.secondary)
+        }
+        .padding(20)
+        .frame(width: 340)
+    }
+
+    private func nudge(_ icon: String, _ action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .bold))
+                .frame(width: 52, height: 44)
+                .background(RoundedRectangle(cornerRadius: 10).fill(Color.accentColor.opacity(0.15)))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func preset(_ title: String, _ value: Double) -> some View {
+        Button(title) { withAnimation(.easeOut(duration: 0.15)) { s.setPlacement(layoutId, vpos: value) } }
+            .buttonStyle(.bordered)
+            .font(.caption)
     }
 }

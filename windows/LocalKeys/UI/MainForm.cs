@@ -16,6 +16,7 @@ internal sealed class MainForm : Form
     private readonly ListView _trusted = new();
     private readonly CheckBox _autostart = new();
     private readonly CheckBox _notify = new();
+    private readonly Label _updateStatus = new();
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 1000 };
     private string _lastTrustedSig = "";
     private string _lastConnectedSig = "";
@@ -111,10 +112,28 @@ internal sealed class MainForm : Form
         logs.Click += (_, _) => Open(Log.Dir);
         var release = FlatButton("Отпустить все клавиши");
         release.Click += (_, _) => _core.ReleaseEverything();
+        var autoUpdate = new CheckBox
+        {
+            Text = "Обновляться автоматически (тихо, в фоне)",
+            AutoSize = true,
+            Checked = _core.Config.AutoUpdate,
+        };
+        autoUpdate.CheckedChanged += (_, _) => { _core.Config.AutoUpdate = autoUpdate.Checked; _core.Config.Save(); };
+        var checkUpdate = FlatButton("Проверить обновления");
+        checkUpdate.Click += async (_, _) =>
+        {
+            checkUpdate.Enabled = false;
+            _updateStatus.Text = "Проверка…";
+            _updateStatus.Text = await _core.Updater.CheckAsync(true);
+            checkUpdate.Enabled = true;
+        };
+        _updateStatus.AutoSize = true;
+        _updateStatus.ForeColor = Theme.Dim;
         var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, Margin = new Padding(0, 6, 0, 0) };
         buttons.Controls.Add(logs);
         buttons.Controls.Add(release);
-        flow.Controls.Add(Card("Параметры", _autostart, _notify, buttons));
+        buttons.Controls.Add(checkUpdate);
+        flow.Controls.Add(Card("Параметры", _autostart, _notify, autoUpdate, buttons, _updateStatus));
 
         var version = new Label
         {

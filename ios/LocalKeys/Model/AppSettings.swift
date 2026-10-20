@@ -41,6 +41,20 @@ final class AppSettings: ObservableObject {
 
     @Published var onboardingDone: Bool { didSet { d.set(onboardingDone, forKey: "onboardingDone") } }
 
+    /// Per-layout placement: layout id -> [vertical position 0 (top)...1 (bottom), size 0.5...1].
+    @Published var placements: [String: [Double]] { didSet { d.set(placements, forKey: "placements") } }
+
+    func vpos(_ layoutId: String) -> Double { placements[layoutId]?.first ?? 0.5 }
+    func scale(_ layoutId: String) -> Double {
+        guard let p = placements[layoutId], p.count > 1 else { return 1 }
+        return p[1]
+    }
+    func setPlacement(_ layoutId: String, vpos: Double? = nil, scale: Double? = nil) {
+        let v = min(max(vpos ?? self.vpos(layoutId), 0), 1)
+        let s = min(max(scale ?? self.scale(layoutId), 0.5), 1)
+        placements[layoutId] = [v, s]
+    }
+
     let deviceId: String
 
     var lastHost: String {
@@ -84,6 +98,7 @@ final class AppSettings: ObservableObject {
         preferredPC = v("preferredPC", "")
         deviceName = v("deviceName", "iPad")
         onboardingDone = v("onboardingDone", false)
+        placements = v("placements", [String: [Double]]())
         if let id = ud.string(forKey: "deviceId") {
             deviceId = id
         } else {
