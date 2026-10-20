@@ -1,0 +1,103 @@
+import Foundation
+import Combine
+
+/// User preferences, persisted in UserDefaults.
+final class AppSettings: ObservableObject {
+    static let shared = AppSettings()
+    private let d = UserDefaults.standard
+
+    // Appearance
+    @Published var themeId: String { didSet { d.set(themeId, forKey: "themeId") } }
+    @Published var keyGap: Double { didSet { d.set(keyGap, forKey: "keyGap") } }
+    @Published var showTopBar: Bool { didSet { d.set(showTopBar, forKey: "showTopBar") } }
+
+    // Keyboard
+    @Published var keySound: Bool { didSet { d.set(keySound, forKey: "keySound") } }
+    @Published var stickyModifiers: Bool { didSet { d.set(stickyModifiers, forKey: "stickyModifiers") } }
+    /// auto (from the PC) | en | ru | ua
+    @Published var legendMode: String { didSet { d.set(legendMode, forKey: "legendMode") } }
+    @Published var bilingual: Bool { didSet { d.set(bilingual, forKey: "bilingual") } }
+    /// Second language printed on keycaps while the PC is in English: ru | ua | none
+    @Published var secondLang: String { didSet { d.set(secondLang, forKey: "secondLang") } }
+    /// winSpace | altShift | ctrlShift
+    @Published var langCombo: String { didSet { d.set(langCombo, forKey: "langCombo") } }
+
+    // Pointer
+    @Published var pointerSpeed: Double { didSet { d.set(pointerSpeed, forKey: "pointerSpeed") } }
+    @Published var pointerAccel: Double { didSet { d.set(pointerAccel, forKey: "pointerAccel") } }
+    @Published var scrollSpeed: Double { didSet { d.set(scrollSpeed, forKey: "scrollSpeed") } }
+    @Published var naturalScroll: Bool { didSet { d.set(naturalScroll, forKey: "naturalScroll") } }
+    @Published var scrollMomentum: Bool { didSet { d.set(scrollMomentum, forKey: "scrollMomentum") } }
+    @Published var tapToClick: Bool { didSet { d.set(tapToClick, forKey: "tapToClick") } }
+    @Published var lookSpeed: Double { didSet { d.set(lookSpeed, forKey: "lookSpeed") } }
+    @Published var invertLookY: Bool { didSet { d.set(invertLookY, forKey: "invertLookY") } }
+
+    // Connection
+    @Published var wifiEnabled: Bool { didSet { d.set(wifiEnabled, forKey: "wifiEnabled") } }
+    @Published var usbEnabled: Bool { didSet { d.set(usbEnabled, forKey: "usbEnabled") } }
+    @Published var manualHost: String { didSet { d.set(manualHost, forKey: "manualHost") } }
+    @Published var preferredPC: String { didSet { d.set(preferredPC, forKey: "preferredPC") } }
+    @Published var deviceName: String { didSet { d.set(deviceName, forKey: "deviceName") } }
+
+    @Published var onboardingDone: Bool { didSet { d.set(onboardingDone, forKey: "onboardingDone") } }
+
+    let deviceId: String
+
+    var lastHost: String {
+        get { d.string(forKey: "lastHost") ?? "" }
+        set { d.set(newValue, forKey: "lastHost") }
+    }
+
+    func token(for pcId: String) -> String? { (d.dictionary(forKey: "tokens") as? [String: String])?[pcId] }
+
+    func setToken(_ token: String?, for pcId: String) {
+        var all = (d.dictionary(forKey: "tokens") as? [String: String]) ?? [:]
+        all[pcId] = token
+        d.set(all, forKey: "tokens")
+    }
+
+    func forgetAllPairings() { d.removeObject(forKey: "tokens") }
+
+    private init() {
+        let ud = UserDefaults.standard
+        func v<T>(_ key: String, _ def: T) -> T { (ud.object(forKey: key) as? T) ?? def }
+        themeId = v("themeId", "midnight")
+        keyGap = v("keyGap", 5.0)
+        showTopBar = v("showTopBar", true)
+        keySound = v("keySound", false)
+        stickyModifiers = v("stickyModifiers", false)
+        legendMode = v("legendMode", "auto")
+        bilingual = v("bilingual", true)
+        secondLang = v("secondLang", "ru")
+        langCombo = v("langCombo", "winSpace")
+        pointerSpeed = v("pointerSpeed", 1.0)
+        pointerAccel = v("pointerAccel", 0.7)
+        scrollSpeed = v("scrollSpeed", 1.0)
+        naturalScroll = v("naturalScroll", true)
+        scrollMomentum = v("scrollMomentum", true)
+        tapToClick = v("tapToClick", true)
+        lookSpeed = v("lookSpeed", 1.0)
+        invertLookY = v("invertLookY", false)
+        wifiEnabled = v("wifiEnabled", true)
+        usbEnabled = v("usbEnabled", true)
+        manualHost = v("manualHost", "")
+        preferredPC = v("preferredPC", "")
+        deviceName = v("deviceName", "iPad")
+        onboardingDone = v("onboardingDone", false)
+        if let id = ud.string(forKey: "deviceId") {
+            deviceId = id
+        } else {
+            let id = UUID().uuidString
+            ud.set(id, forKey: "deviceId")
+            deviceId = id
+        }
+    }
+
+    var langComboCodes: [UInt16] {
+        switch langCombo {
+        case "altShift": return [KC.lalt, KC.lshift]
+        case "ctrlShift": return [KC.lctrl, KC.lshift]
+        default: return [KC.lwin, KC.space]
+        }
+    }
+}
