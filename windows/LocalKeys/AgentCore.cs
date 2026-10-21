@@ -40,7 +40,10 @@ internal sealed class AgentCore : IDisposable
         Config = config;
         Updater = new Updater(config, () => AnyDeviceConnected());
         Layouts.Changed += state => Broadcast(s => s.SendJson(Protocol.PcState, WithAddresses(state)));
+        _stallTimer = new System.Threading.Timer(_ => CheckStalls(), null, 250, 250);
     }
+
+    private readonly System.Threading.Timer _stallTimer;
 
     public void Start()
     {
@@ -109,6 +112,7 @@ internal sealed class AgentCore : IDisposable
 
     public void HandleFrame(Session s, byte type, ReadOnlySpan<byte> p)
     {
+        if (s.Authed && s.DeviceId != null) Device(s.DeviceId).MarkAlive();
         if (type == Protocol.Ping)
         {
             s.Send(Protocol.Pong, p);
@@ -300,8 +304,25 @@ internal sealed class AgentCore : IDisposable
         lock (_gate) foreach (var d in _devices.Values) d.ReleaseAll();
     }
 
+    /// <summary>
+    /// Dead-man switch: if the iPad app freezes with keys down (its socket stays open, so the
+    /// session doesn't drop), let go of everything instead of leaving a hotkey held.
+    /// </summary>
+    private void CheckStalls()
+    {
+        List<DeviceInput> stalled;
+        lock (_gate)
+            stalled = _devices.Values.Where(d => d.HeldCount > 0 && d.SilentMs > DeviceInput.StallReleaseMs).ToList();
+        foreach (var d in stalled)
+        {
+            Log.Warn($"iPad {d.DeviceId} stopped responding for {d.SilentMs} ms with keys held: releasing all");
+            d.ReleaseAll();
+        }
+    }
+
     public void Dispose()
     {
+        _stallTimer.Dispose();
         ReleaseEverything();
         Updater.Dispose();
         Wifi?.Dispose();

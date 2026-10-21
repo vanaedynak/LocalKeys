@@ -188,6 +188,9 @@ final class KeyCapView: ElementView {
         fnLabel.frame = CGRect(x: inset, y: h - inset * 0.6 - small * 1.3, width: (w - inset * 2) * (altText.isEmpty ? 1 : 0.6), height: small * 1.3)
         led.frame = CGRect(x: w - inset - 6, y: inset, width: 6, height: 6)
         layer.cornerRadius = min(10, unit * 0.16)
+        // Without an explicit path every shadow is an offscreen render pass in the system compositor:
+        // ~70 of them under Stage Manager / Control Center blur could stall the whole iPad.
+        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: layer.cornerRadius).cgPath
     }
 }
 

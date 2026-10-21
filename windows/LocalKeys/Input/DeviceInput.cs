@@ -20,6 +20,14 @@ internal sealed class DeviceInput : IDisposable
     public string DeviceId { get; }
     public object? ActiveSession { get; set; }
 
+    /// <summary>The iPad pings twice a second from its UI thread: silence means the app froze.</summary>
+    private long _lastRx = Environment.TickCount64;
+    private const int RepeatStallMs = 700;
+    public const int StallReleaseMs = 2000;
+
+    public void MarkAlive() => Volatile.Write(ref _lastRx, Environment.TickCount64);
+    public long SilentMs => Environment.TickCount64 - Volatile.Read(ref _lastRx);
+
     public DeviceInput(string deviceId)
     {
         DeviceId = deviceId;
@@ -108,6 +116,8 @@ internal sealed class DeviceInput : IDisposable
         lock (_gate)
         {
             if (!_repeating || !_keys.Contains(_repeatCode)) { StopRepeat(); return; }
+            // Don't type "aaaaaa" while the iPad is not responding; the key itself stays held.
+            if (SilentMs > RepeatStallMs) return;
             InputInjector.Key(_repeatCode, true);
         }
     }
