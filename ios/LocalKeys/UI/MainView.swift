@@ -6,7 +6,8 @@ enum SheetKind: String, Identifiable {
 }
 
 struct MainView: View {
-    @ObservedObject private var conn = ConnectionManager.shared
+    // Deliberately not observing ConnectionManager here: its ping/latency updates would
+    // re-render the whole screen (and re-apply the keyboard) twice a second.
     @ObservedObject private var store = LayoutStore.shared
     @ObservedObject private var settings = AppSettings.shared
 
@@ -70,11 +71,7 @@ struct MainView: View {
                 }
             }
         }
-        .overlay {
-            if conn.phase == .pairing, let code = conn.pairingCode {
-                PairingOverlay(code: code, theme: theme)
-            }
-        }
+        .overlay { PairingOverlayHost(theme: theme) }
         .sheet(item: $sheet) { kind in
             sheetView(kind)
                 .preferredColorScheme(theme.isLight ? .light : .dark)
@@ -203,7 +200,6 @@ struct MainView: View {
 // MARK: - Top bar
 
 struct TopBar: View {
-    @ObservedObject private var conn = ConnectionManager.shared
     @ObservedObject private var store = LayoutStore.shared
     @ObservedObject private var settings = AppSettings.shared
     let theme: KTheme
@@ -213,7 +209,7 @@ struct TopBar: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            Button { onOpen(.connection) } label: { connectionPill }
+            Button { onOpen(.connection) } label: { ConnectionPill(theme: theme) }
                 .buttonStyle(.plain)
 
             ScrollView(.horizontal, showsIndicators: false) {
@@ -238,7 +234,7 @@ struct TopBar: View {
                 .padding(.vertical, 4)
             }
 
-            langMenu
+            LangMenu(theme: theme)
 
             barButton("arrow.up.and.down.square") { showPlacement.toggle() }
                 .popover(isPresented: $showPlacement, arrowEdge: .top) {
@@ -257,6 +253,23 @@ struct TopBar: View {
         .background(Color(uiColor: theme.bar))
     }
 
+    private func barButton(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 16, weight: .medium))
+                .foregroundColor(Color(uiColor: theme.textDim))
+                .frame(width: 34, height: 34)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+/// Separate views with their own observer: latency updates redraw only these, not the whole bar.
+struct ConnectionPill: View {
+    @ObservedObject private var conn = ConnectionManager.shared
+    let theme: KTheme
+
     private var statusColor: Color {
         switch conn.phase {
         case .connected: return .green
@@ -266,7 +279,7 @@ struct TopBar: View {
         }
     }
 
-    private var connectionPill: some View {
+    var body: some View {
         HStack(spacing: 7) {
             Image(systemName: conn.transport == .usb ? "cable.connector" : (conn.phase == .connected ? "wifi" : "antenna.radiowaves.left.and.right"))
                 .font(.system(size: 13, weight: .semibold))
@@ -288,8 +301,13 @@ struct TopBar: View {
         .frame(maxWidth: 200, alignment: .leading)
         .background(Capsule().fill(Color(uiColor: theme.key).opacity(0.6)))
     }
+}
 
-    private var langMenu: some View {
+struct LangMenu: View {
+    @ObservedObject private var conn = ConnectionManager.shared
+    let theme: KTheme
+
+    var body: some View {
         Menu {
             if let list = conn.pcState?.layouts, !list.isEmpty {
                 ForEach(list) { info in
@@ -314,17 +332,6 @@ struct TopBar: View {
                 .padding(.vertical, 6)
                 .background(Capsule().fill(Color(uiColor: theme.key).opacity(0.6)))
         }
-    }
-
-    private func barButton(_ icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(Color(uiColor: theme.textDim))
-                .frame(width: 34, height: 34)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -384,6 +391,18 @@ struct EditorBar: View {
 }
 
 // MARK: - Pairing overlay
+
+/// Observes the connection on its own so only this small view updates on network events.
+struct PairingOverlayHost: View {
+    @ObservedObject private var conn = ConnectionManager.shared
+    let theme: KTheme
+
+    var body: some View {
+        if conn.phase == .pairing, let code = conn.pairingCode {
+            PairingOverlay(code: code, theme: theme)
+        }
+    }
+}
 
 struct PairingOverlay: View {
     let code: String

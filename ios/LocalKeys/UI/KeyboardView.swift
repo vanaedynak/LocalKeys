@@ -125,11 +125,19 @@ final class KeyboardView: UIView {
             self.selectedId = selectedId
         }
         updateSelection()
-        updateLegends()
+        // Legends follow the PC and modifiers through notifications; here only settings matter.
+        let sig = "\(settings.legendMode)|\(settings.bilingual)|\(settings.secondLang)"
+        if sig != legendSig {
+            legendSig = sig
+            updateLegends()
+        }
     }
+
+    private var legendSig = ""
 
     private func rebuild() {
         built = true
+        zones.values.forEach { $0.cancelAll() }
         views.values.forEach { $0.removeFromSuperview() }
         views.removeAll()
         zones.removeAll()
@@ -495,6 +503,7 @@ final class KeyboardView: UIView {
                 if cfg.sprintLatch == true, st.held.contains(sprint), want.contains(cfg.up) { want.insert(sprint) }
             }
         }
+        let changed = want != st.held
         for c in st.held.subtracting(want) { input.release(c) }
         for c in want.subtracting(st.held) { input.press(c) }
         st.held = want
@@ -503,7 +512,7 @@ final class KeyboardView: UIView {
         let c = convert(st.center, to: sv)
         sv.center0 = c
         sv.setKnob(center: c, offset: visual)
-        refreshStates()
+        if changed { refreshStates() }
     }
 
     private func endStick(_ id: UUID) {

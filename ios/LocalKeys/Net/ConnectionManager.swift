@@ -417,10 +417,7 @@ final class ConnectionManager: ObservableObject {
     }
 
     private func refreshRtt() {
-        if let a = activeLink, let r = a.rttMs {
-            let v = Int(r.rounded())
-            if v != rttMs { rttMs = v }
-        }
+        if let a = activeLink, let r = a.rttMs { setRtt(Int(r.rounded())) }
     }
 
     private func refresh() {
@@ -440,7 +437,7 @@ final class ConnectionManager: ObservableObject {
         update(\.wifiLinked, wifiLink?.authed == true)
         update(\.transport, active?.kind)
         update(\.pcName, active?.serverHello?.pcName ?? usbLink?.serverHello?.pcName ?? wifiLink?.serverHello?.pcName ?? "")
-        update(\.rttMs, active?.rttMs.map { Int($0.rounded()) })
+        if let r = active?.rttMs { setRtt(Int(r.rounded())) } else { update(\.rttMs, nil) }
 
         let pairing = [usbLink, wifiLink].compactMap { $0 }.first { $0.pairingCode != nil && !$0.authed }
         update(\.pairingCode, active == nil ? pairing?.pairingCode : nil)
@@ -478,6 +475,12 @@ final class ConnectionManager: ObservableObject {
             detail = ""
         }
         update(\.statusDetail, detail)
+    }
+
+    /// Latency jitters by a millisecond on every pong; only republish real changes.
+    private func setRtt(_ v: Int) {
+        if let cur = rttMs, abs(cur - v) < 2 { return }
+        rttMs = v
     }
 
     private func update<T: Equatable>(_ kp: ReferenceWritableKeyPath<ConnectionManager, T>, _ value: T) {

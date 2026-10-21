@@ -147,6 +147,7 @@ final class TrackpadController: NSObject {
     // MARK: momentum scrolling
 
     private func startMomentum(_ v: CGPoint) {
+        stopMomentum()   // never leave a second display link ticking
         momentum = v
         lastFrame = CACurrentMediaTime()
         let link = CADisplayLink(target: self, selector: #selector(step))

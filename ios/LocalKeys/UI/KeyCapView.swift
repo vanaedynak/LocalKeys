@@ -53,6 +53,8 @@ final class KeyCapView: ElementView {
     private var altText = ""
     private var captionText = ""
     private var symbolName: String?
+    private var fontKey: (unit: CGFloat, long: Bool) = (-1, false)
+    private var shadowSize = CGSize(width: -1, height: -1)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -159,12 +161,17 @@ final class KeyCapView: ElementView {
         let w = bounds.width, h = bounds.height
         let unit = min(w, h)
         let hasSub = !topText.isEmpty || !altText.isEmpty
-        let mainSize = min(unit * (mainText.count > 2 ? 0.27 : 0.4), 30)
-        mainLabel.font = .systemFont(ofSize: mainText.count > 2 ? max(mainSize, 11) : mainSize, weight: .medium)
         let small = max(min(unit * 0.22, 15), 8)
-        topLabel.font = .systemFont(ofSize: small, weight: .regular)
-        altLabel.font = .systemFont(ofSize: small, weight: .semibold)
-        captionLabel.font = .systemFont(ofSize: max(min(unit * 0.17, 13), 8), weight: .medium)
+        let longMain = mainText.count > 2
+        // Fonts only depend on the key size and text length: don't rebuild them on every legend change.
+        if fontKey.unit != unit || fontKey.long != longMain {
+            fontKey = (unit, longMain)
+            let mainSize = min(unit * (longMain ? 0.27 : 0.4), 30)
+            mainLabel.font = .systemFont(ofSize: longMain ? max(mainSize, 11) : mainSize, weight: .medium)
+            topLabel.font = .systemFont(ofSize: small, weight: .regular)
+            altLabel.font = .systemFont(ofSize: small, weight: .semibold)
+            captionLabel.font = .systemFont(ofSize: max(min(unit * 0.17, 13), 8), weight: .medium)
+            }
 
         let inset: CGFloat = max(unit * 0.1, 4)
         if symbolName != nil {
@@ -190,7 +197,10 @@ final class KeyCapView: ElementView {
         layer.cornerRadius = min(10, unit * 0.16)
         // Without an explicit path every shadow is an offscreen render pass in the system compositor:
         // ~70 of them under Stage Manager / Control Center blur could stall the whole iPad.
-        layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: layer.cornerRadius).cgPath
+        if shadowSize != bounds.size {
+            shadowSize = bounds.size
+            layer.shadowPath = UIBezierPath(roundedRect: bounds, cornerRadius: layer.cornerRadius).cgPath
+        }
     }
 }
 
