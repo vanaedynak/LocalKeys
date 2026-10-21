@@ -24,6 +24,7 @@ struct LocalKeysApp: App {
                 .onAppear {
                     UIApplication.shared.isIdleTimerDisabled = true
                     ConnectionManager.shared.start()
+                    InputController.shared.startWatchdog()
                     if ProcessInfo.processInfo.environment["LK_LANDSCAPE"] != nil {
                         forceLandscape()
                     }

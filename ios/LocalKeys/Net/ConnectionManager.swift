@@ -37,8 +37,23 @@ final class ConnectionManager: ObservableObject {
     @Published private(set) var localNetworkDenied = false
 
     private let settings = AppSettings.shared
-    private var usbLink: Link?
-    private var wifiLink: Link?
+    private var usbLink: Link? { didSet { publishLinks() } }
+    private var wifiLink: Link? { didSet { publishLinks() } }
+
+    /// Links readable off the main thread, for the freeze watchdog.
+    private let linksLock = NSLock()
+    private var linksSnapshot: [Link] = []
+    private func publishLinks() {
+        let l = [usbLink, wifiLink].compactMap { $0 }
+        linksLock.lock(); linksSnapshot = l; linksLock.unlock()
+    }
+
+    /// Called from the watchdog thread while the main thread is stuck: tell the PC to let go now.
+    func emergencyReleaseAll() {
+        linksLock.lock(); let l = linksSnapshot; linksLock.unlock()
+        let frame = Proto.frame(.releaseAll)
+        for link in l { link.send(frame) }
+    }
     private var lastActive: Link?
     private var browser: NWBrowser?
     private var listener: NWListener?
@@ -473,4 +488,5 @@ final class ConnectionManager: ObservableObject {
 extension Notification.Name {
     static let lkLegendsChanged = Notification.Name("lkLegendsChanged")
     static let lkInputStateChanged = Notification.Name("lkInputStateChanged")
+    static let lkStallRecovered = Notification.Name("lkStallRecovered")
 }

@@ -77,6 +77,10 @@ final class KeyboardView: UIView {
             self?.updateLegends()
             self?.refreshStates()
         })
+        observers.append(nc.addObserver(forName: .lkStallRecovered, object: nil, queue: .main) { [weak self] _ in
+            // The PC has already been told to let go: drop every finger so nothing stays pressed.
+            self?.releaseAllTouches()
+        })
         observers.append(nc.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.releaseAllTouches()
         })

@@ -8,8 +8,8 @@ final class InputController {
 
     enum Latch { case oneShot, locked }
 
-    private(set) var keyCounts: [UInt16: Int] = [:]
-    private(set) var buttonCounts: [UInt8: Int] = [:]
+    private(set) var keyCounts: [UInt16: Int] = [:] { didSet { updateHeldFlag() } }
+    private(set) var buttonCounts: [UInt8: Int] = [:] { didSet { updateHeldFlag() } }
     private(set) var latched: [UInt16: Latch] = [:]
 
     private var modTaps: [UInt16: (time: CFTimeInterval, interrupted: Bool)] = [:]
@@ -27,6 +27,63 @@ final class InputController {
 
     private func notify() {
         NotificationCenter.default.post(name: .lkInputStateChanged, object: nil)
+    }
+
+    // MARK: freeze watchdog
+
+    /// A background thread watches the main thread. If the UI hangs (system overlay, heavy
+    /// redraw...) while anything is held, the PC is told to release everything right away,
+    /// and when the UI comes back all touches are dropped so nothing re-presses by itself.
+    private let wdLock = NSLock()
+    private var wdAnyHeld = false
+    private var wdLastBeat = CACurrentMediaTime()
+    private var wdFired = false
+    private var wdBeatPending = false
+    private var watchdog: DispatchSourceTimer?
+    private static let stallLimit: CFTimeInterval = 0.6
+
+    private func updateHeldFlag() {
+        let any = !keyCounts.isEmpty || !buttonCounts.isEmpty
+        wdLock.lock(); wdAnyHeld = any; wdLock.unlock()
+    }
+
+    func startWatchdog() {
+        guard watchdog == nil else { return }
+        let t = DispatchSource.makeTimerSource(queue: DispatchQueue.global(qos: .userInteractive))
+        t.schedule(deadline: .now() + 0.1, repeating: 0.1, leeway: .milliseconds(20))
+        t.setEventHandler { [weak self] in self?.watchdogTick() }
+        watchdog = t
+        t.resume()
+    }
+
+    private func watchdogTick() {
+        let now = CACurrentMediaTime()
+        wdLock.lock()
+        let stalled = now - wdLastBeat > Self.stallLimit
+        let fire = stalled && wdAnyHeld && !wdFired
+        if fire { wdFired = true }
+        let needBeat = !wdBeatPending
+        if needBeat { wdBeatPending = true }
+        wdLock.unlock()
+
+        if fire { connection.emergencyReleaseAll() }
+        if needBeat {
+            DispatchQueue.main.async { [weak self] in self?.mainBeat() }
+        }
+    }
+
+    private func mainBeat() {
+        wdLock.lock()
+        wdLastBeat = CACurrentMediaTime()
+        wdBeatPending = false
+        let recovered = wdFired
+        wdFired = false
+        wdLock.unlock()
+        if recovered {
+            NSLog("LocalKeys: main thread stalled with keys held; released everything")
+            NotificationCenter.default.post(name: .lkStallRecovered, object: nil)
+            resetLocal()
+        }
     }
 
     // MARK: raw reference-counted keys
