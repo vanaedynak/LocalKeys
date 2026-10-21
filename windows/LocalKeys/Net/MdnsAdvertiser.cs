@@ -53,9 +53,22 @@ internal sealed class MdnsAdvertiser : IDisposable
 
     public MdnsAdvertiser(int port) => _port = port;
 
+    /// <summary>Set when Windows reports a failed registration; the server re-registers.</summary>
+    public static volatile bool Failed;
+
+    /// <summary>The interfaces/addresses the current registration covers.</summary>
+    public string Signature { get; private set; } = "";
+
+    public static string CurrentSignature() =>
+        string.Join(";", NetUtil.LanInterfaces().Select(l => $"{l.Index}={l.Address}"));
+
     private static void OnComplete(uint status, IntPtr context, IntPtr instance)
     {
-        if (status != 0) Log.Warn($"mDNS registration completed with status {status}");
+        if (status != 0)
+        {
+            Failed = true;
+            Log.Warn($"mDNS registration completed with status {status}");
+        }
         if (instance != IntPtr.Zero) DnsServiceFreeInstance(instance);
     }
 
@@ -69,6 +82,8 @@ internal sealed class MdnsAdvertiser : IDisposable
                 var serviceName = $"{Sanitize(host)}.{Protocol.BonjourType}.local";
                 var hostName = $"{host}.local";
                 var lans = NetUtil.LanInterfaces();
+                Signature = string.Join(";", lans.Select(l => $"{l.Index}={l.Address}"));
+                Failed = false;
                 var done = new List<string>();
 
                 if (lans.Count == 0)

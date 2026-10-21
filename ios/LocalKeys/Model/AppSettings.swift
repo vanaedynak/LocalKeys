@@ -57,6 +57,12 @@ final class AppSettings: ObservableObject {
 
     let deviceId: String
 
+    /// LAN addresses the PC reported (also learned over USB): fallback when Bonjour fails.
+    var knownHosts: [String] {
+        get { d.stringArray(forKey: "knownHosts") ?? [] }
+        set { d.set(newValue, forKey: "knownHosts") }
+    }
+
     var lastHost: String {
         get { d.string(forKey: "lastHost") ?? "" }
         set { d.set(newValue, forKey: "lastHost") }

@@ -14,6 +14,33 @@ internal sealed class WifiServer : IDisposable
     private volatile bool _stopped;
     private readonly MdnsAdvertiser _mdns;
     private readonly System.Threading.Timer _readvertise;
+    private readonly System.Threading.Timer _health;
+    private int _readvertising;
+
+    /// <summary>
+    /// Windows raises "address changed" constantly (VPN adapters, WSL/Hyper-V, IPv6 privacy addresses).
+    /// Re-registering on every event made the service flicker for the iPad, so only do it when
+    /// the LAN addresses really changed or the last registration failed.
+    /// </summary>
+    private void ReadvertiseIfNeeded()
+    {
+        if (Interlocked.Exchange(ref _readvertising, 1) == 1) return;
+        try
+        {
+            var sig = MdnsAdvertiser.CurrentSignature();
+            if (_mdns.Registered && !MdnsAdvertiser.Failed && sig == _mdns.Signature) return;
+            Log.Info($"Re-advertising (registered={_mdns.Registered}, failed={MdnsAdvertiser.Failed}, addresses {_mdns.Signature} -> {sig})");
+            _mdns.Restart();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Re-advertise", ex);
+        }
+        finally
+        {
+            Volatile.Write(ref _readvertising, 0);
+        }
+    }
 
     public bool Listening { get; private set; }
     public string? Error { get; private set; }
@@ -23,7 +50,8 @@ internal sealed class WifiServer : IDisposable
         _core = core;
         _port = port;
         _mdns = new MdnsAdvertiser(port);
-        _readvertise = new System.Threading.Timer(_ => _mdns.Restart(), null, Timeout.Infinite, Timeout.Infinite);
+        _readvertise = new System.Threading.Timer(_ => ReadvertiseIfNeeded(), null, Timeout.Infinite, Timeout.Infinite);
+        _health = new System.Threading.Timer(_ => ReadvertiseIfNeeded(), null, TimeSpan.FromSeconds(30), TimeSpan.FromSeconds(60));
     }
 
     public bool Advertised => _mdns.Registered;
@@ -87,6 +115,7 @@ internal sealed class WifiServer : IDisposable
     {
         _stopped = true;
         _readvertise.Dispose();
+        _health.Dispose();
         NetworkChange.NetworkAddressChanged -= OnNetworkChanged;
         try { _listener?.Dispose(); } catch { }
         _mdns.Dispose();

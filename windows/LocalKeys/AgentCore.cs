@@ -38,8 +38,8 @@ internal sealed class AgentCore : IDisposable
     public AgentCore(Config config)
     {
         Config = config;
-        Updater = new Updater(config);
-        Layouts.Changed += state => Broadcast(s => s.SendJson(Protocol.PcState, state));
+        Updater = new Updater(config, () => AnyDeviceConnected());
+        Layouts.Changed += state => Broadcast(s => s.SendJson(Protocol.PcState, WithAddresses(state)));
     }
 
     public void Start()
@@ -193,7 +193,7 @@ internal sealed class AgentCore : IDisposable
                 Layouts.SwitchTo(cmd.Arg);
                 break;
             case "requestState":
-                s.SendJson(Protocol.PcState, Layouts.Current);
+                s.SendJson(Protocol.PcState, WithAddresses(Layouts.Current));
                 break;
         }
     }
@@ -274,11 +274,20 @@ internal sealed class AgentCore : IDisposable
     {
         s.Authed = true;
         s.SendJson(Protocol.HelloAck, new HelloAckMsg { Status = "ok", Token = token });
-        s.SendJson(Protocol.PcState, Layouts.Current);
+        s.SendJson(Protocol.PcState, WithAddresses(Layouts.Current));
         Log.Info($"Authenticated {s}");
         SessionsChanged?.Invoke();
         DeviceConnected?.Invoke(s);
     }
+
+    private PcStateMsg WithAddresses(PcStateMsg state)
+    {
+        state.Addresses = WifiServer.LocalAddresses();
+        state.Port = Config.WifiPort;
+        return state;
+    }
+
+    public bool AnyDeviceConnected() => Sessions().Any(s => s.Authed);
 
     public void ForgetDevice(string id)
     {

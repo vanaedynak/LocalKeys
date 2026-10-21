@@ -50,6 +50,8 @@ final class ConnectionManager: ObservableObject {
     private var bonjourFound: [DiscoveredPC] = []
     private var scanner: NetworkScanner?
     private var deniedUntil: Date?
+    private var lastAutoScan = Date.distantPast
+    private var startedAt = Date()
     private var cancellables = Set<AnyCancellable>()
 
     var activeLink: Link? {
@@ -78,6 +80,7 @@ final class ConnectionManager: ObservableObject {
     func start() {
         guard !running else { return }
         running = true
+        startedAt = Date()
         startBrowser()
         startUSBListener()
         nextWifiAttempt = Date.distantPast
@@ -269,8 +272,10 @@ final class ConnectionManager: ObservableObject {
         for d in discovered where pref.isEmpty || d.name == pref {
             if !list.contains(where: { $0.1 == d.name }) { list.append((d.endpoint, d.name)) }
         }
-        if !settings.lastHost.isEmpty {
-            list.append((.hostPort(host: NWEndpoint.Host(settings.lastHost), port: NWEndpoint.Port(rawValue: Proto.wifiPort)!), settings.lastHost))
+        var hosts = settings.knownHosts
+        if !settings.lastHost.isEmpty, !hosts.contains(settings.lastHost) { hosts.append(settings.lastHost) }
+        for h in hosts {
+            list.append((.hostPort(host: NWEndpoint.Host(h), port: NWEndpoint.Port(rawValue: Proto.wifiPort)!), h))
         }
         return list
     }
@@ -351,6 +356,9 @@ final class ConnectionManager: ObservableObject {
             refresh()
         case .pcState:
             if let st = try? JSONDecoder().decode(PcState.self, from: Data(p)) {
+                if let addrs = st.addresses, !addrs.isEmpty, addrs != settings.knownHosts {
+                    settings.knownHosts = addrs
+                }
                 // Only the active link's PC drives the keycap legends.
                 if link === activeLink || activeLink == nil {
                     if st != pcState {
@@ -377,6 +385,12 @@ final class ConnectionManager: ObservableObject {
                 continue
             }
             l.send(Proto.ping())
+        }
+        // Auto-discovery found nothing and no address is known/working: probe the subnet now and then.
+        if settings.wifiEnabled, wifiLink?.authed != true, settings.manualHost.isEmpty, !scanning,
+           bonjourFound.isEmpty, now.timeIntervalSince(lastAutoScan) > 40, now.timeIntervalSince(startedAt) > 6 {
+            lastAutoScan = now
+            scanNetwork()
         }
         if settings.wifiEnabled, wifiLink == nil, now >= nextWifiAttempt {
             // While USB carries input, still keep a Wi-Fi link warm for instant failover.

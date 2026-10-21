@@ -16,17 +16,19 @@ internal sealed class Updater : IDisposable
 {
     public const string Repo = "vanaedynak/LocalKeys";
     private readonly Config _config;
+    private readonly Func<bool> _busyNow;
     private readonly Timer _timer;
     private int _busy;
 
     public string Status { get; private set; } = "";
     public static Version Current { get; } = Normalize(Assembly.GetEntryAssembly()?.GetName().Version ?? new Version(0, 0, 0));
 
-    public Updater(Config config)
+    public Updater(Config config, Func<bool> busyNow)
     {
         _config = config;
-        // First check shortly after logon, then every 6 hours.
-        _timer = new Timer(_ => _ = CheckAsync(false), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(6));
+        _busyNow = busyNow;
+        // First check shortly after logon, then hourly; installing waits until no iPad is connected.
+        _timer = new Timer(_ => _ = CheckAsync(false), null, TimeSpan.FromMinutes(1), TimeSpan.FromHours(1));
     }
 
     private static Version Normalize(Version v) => new(v.Major, Math.Max(v.Minor, 0), Math.Max(v.Build, 0));
@@ -62,6 +64,9 @@ internal sealed class Updater : IDisposable
 
             if (!Elevation.IsElevated)
                 return Status = $"Доступна версия {latest} — скачайте установщик с GitHub (нет прав для тихой установки)";
+
+            if (!manual && _busyNow())
+                return Status = $"Доступна версия {latest}: установится, когда iPad будет отключён";
 
             Status = $"Загрузка версии {latest}…";
             Log.Info($"Updating {Current} -> {latest} from {url}");

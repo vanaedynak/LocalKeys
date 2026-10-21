@@ -115,4 +115,6 @@ struct PcState: Codable, Equatable {
     var num: Bool?
     var scroll: Bool?
     var elevated: Bool?
+    var addresses: [String]?
+    var port: Int?
 }

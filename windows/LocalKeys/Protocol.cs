@@ -88,4 +88,7 @@ internal sealed class PcStateMsg
     public bool Num { get; set; }
     public bool Scroll { get; set; }
     public bool Elevated { get; set; }
+    /// <summary>LAN IPv4 addresses of this PC: the iPad keeps them as a fallback when auto-discovery fails.</summary>
+    public List<string> Addresses { get; set; } = new();
+    public int Port { get; set; } = Protocol.WifiPort;
 }
