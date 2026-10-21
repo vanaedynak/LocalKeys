@@ -74,8 +74,14 @@ final class KeyboardView: UIView {
             self?.updateLegends()
         })
         observers.append(nc.addObserver(forName: .lkInputStateChanged, object: nil, queue: .main) { [weak self] _ in
-            self?.updateLegends()
-            self?.refreshStates()
+            guard let self = self else { return }
+            // Only Shift changes what the keycaps say (symbol row); other modifiers just recolor.
+            let shift = self.input.shiftActive
+            if shift != self.lastShift {
+                self.lastShift = shift
+                self.updateLegends(resolve: false)
+            }
+            self.refreshStates()
         })
         observers.append(nc.addObserver(forName: .lkStallRecovered, object: nil, queue: .main) { [weak self] _ in
             // The PC has already been told to let go: drop every finger so nothing stays pressed.
@@ -330,8 +336,12 @@ final class KeyboardView: UIView {
         return (KeyCatalog.cap(c), "", "")
     }
 
-    func updateLegends() {
-        legends = Legends.resolve(settings: settings, pc: ConnectionManager.shared.pcState)
+    private var lastShift = false
+
+    /// `resolve`: rebuild the legend tables (PC layout or settings changed). Shift / Fn only
+    /// relabel keys with the tables already resolved.
+    func updateLegends(resolve: Bool = true) {
+        if resolve { legends = Legends.resolve(settings: settings, pc: ConnectionManager.shared.pcState) }
         let pc = ConnectionManager.shared.pcState
         for k in layout.keys {
             guard let c = views[k.id] as? KeyCapView else { continue }
@@ -415,7 +425,7 @@ final class KeyboardView: UIView {
             case .langSwitch: input.tapCombo(settings.langComboCodes)
             case .fn:
                 fnHeld += 1
-                updateLegends()
+                updateLegends(resolve: false)
             case .releaseAll:
                 releaseAllTouches()
                 input.releaseAll()
@@ -437,7 +447,7 @@ final class KeyboardView: UIView {
                 if sp == .textPanel || sp == .nextLayout { onSpecial?(sp) }
                 if sp == .fn {
                     fnHeld = max(0, fnHeld - 1)
-                    updateLegends()
+                    updateLegends(resolve: false)
                 }
             case .switchLayout(let id): onSwitchLayout?(id)
             default: break
@@ -464,6 +474,7 @@ final class KeyboardView: UIView {
             }
         }
         bindings.removeAll()
+        touchRefs.removeAll()
         fnHeld = 0
         for id in toggled {
             if let k = keyDef(id) { releaseRaw(k) }
@@ -529,7 +540,32 @@ final class KeyboardView: UIView {
     // MARK: touches
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { began(t, event) }
+        sweepLostTouches()
+        for t in touches {
+            touchRefs[ObjectIdentifier(t)] = t
+            began(t, event)
+        }
+        if sweepTimer == nil, !bindings.isEmpty {
+            let timer = Timer(timeInterval: 0.25, repeats: true) { [weak self] _ in self?.sweepLostTouches() }
+            RunLoop.main.add(timer, forMode: .common)
+            sweepTimer = timer
+        }
+    }
+
+    /// Live touches by identity, to notice ones the system dropped without ending them
+    /// (window switches in Stage Manager, system gestures): a lost touch must not keep a key held.
+    private var touchRefs: [ObjectIdentifier: UITouch] = [:]
+    private var sweepTimer: Timer?
+
+    private func sweepLostTouches() {
+        for (_, t) in touchRefs where t.phase == .ended || t.phase == .cancelled || t.window == nil {
+            ended(t, cancelled: true)
+        }
+        if bindings.isEmpty {
+            touchRefs.removeAll()
+            sweepTimer?.invalidate()
+            sweepTimer = nil
+        }
     }
 
     override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
@@ -605,6 +641,7 @@ final class KeyboardView: UIView {
 
     private func ended(_ t: UITouch, cancelled: Bool) {
         let key = ObjectIdentifier(t)
+        touchRefs[key] = nil
         guard let b = bindings.removeValue(forKey: key) else { return }
         switch b {
         case .key(let id, let fn):

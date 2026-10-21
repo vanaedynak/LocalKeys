@@ -3,8 +3,13 @@ import Network
 
 /// One framed TCP connection to the PC — either over Wi-Fi (we connect to the PC)
 /// or over USB (the PC connects to us through usbmux).
+///
+/// Socket work runs on a dedicated network queue, so a busy or stuck UI thread never delays
+/// reading or sending. Events (ready, frames, close) are delivered on the main queue, in order.
 final class Link {
     enum Kind: String { case wifi, usb }
+
+    private static let queue = DispatchQueue(label: "localkeys.net", qos: .userInteractive)
 
     let kind: Kind
     let conn: NWConnection
@@ -14,8 +19,14 @@ final class Link {
     var onClose: ((Link) -> Void)?
     var onReady: ((Link) -> Void)?
 
-    private(set) var closed = false
-    private(set) var ready = false
+    // Shared with the network queue and the freeze watchdog thread.
+    private let lock = NSLock()
+    private var _closed = false
+    private var _ready = false
+    var closed: Bool { lock.lock(); defer { lock.unlock() }; return _closed }
+    var ready: Bool { lock.lock(); defer { lock.unlock() }; return _ready && !_closed }
+
+    // Main-thread state.
     var lastRx = Date()
     var serverHello: ServerHello?
     var authed = false
@@ -45,12 +56,15 @@ final class Link {
 
     func start() {
         conn.stateUpdateHandler = { [weak self] state in
-            guard let self = self else { return }
+            guard let self = self, !self.closed else { return }
             switch state {
             case .ready:
-                self.ready = true
-                self.lastRx = Date()
-                self.onReady?(self)
+                self.lock.lock(); self._ready = true; self.lock.unlock()
+                DispatchQueue.main.async {
+                    guard !self.closed else { return }
+                    self.lastRx = Date()
+                    self.onReady?(self)
+                }
                 self.readHeader()
             case .failed, .cancelled:
                 self.close()
@@ -61,15 +75,14 @@ final class Link {
                 break
             }
         }
-        conn.start(queue: .main)
+        conn.start(queue: Self.queue)
     }
 
     private func readHeader() {
         conn.receive(minimumIncompleteLength: 2, maximumLength: 2) { [weak self] data, _, isComplete, error in
             guard let self = self, !self.closed else { return }
             if let data = data, data.count == 2 {
-                let b = [UInt8](data)
-                let len = Int(b[0]) << 8 | Int(b[1])
+                let len = Int(data[data.startIndex]) << 8 | Int(data[data.startIndex + 1])
                 if len == 0 { self.close(); return }
                 self.readBody(len)
             } else if isComplete || error != nil {
@@ -87,30 +100,40 @@ final class Link {
                 self.close()
                 return
             }
-            self.lastRx = Date()
             let bytes = [UInt8](data)
             if let type = MsgType(rawValue: bytes[0]) {
-                self.onFrame?(self, type, Array(bytes.dropFirst()))
+                let payload = Array(bytes.dropFirst())
+                DispatchQueue.main.async {
+                    guard !self.closed else { return }
+                    self.lastRx = Date()
+                    self.onFrame?(self, type, payload)
+                }
+            } else {
+                DispatchQueue.main.async { self.lastRx = Date() }
             }
-            if self.closed { return }
             if isComplete || error != nil { self.close(); return }
             self.readHeader()
         }
     }
 
+    /// Thread-safe. Failures surface through the connection state (failed/cancelled), so there
+    /// is no per-send completion callback to bounce through the main thread on every key.
     func send(_ data: Data) {
-        guard !closed, ready else { return }
-        conn.send(content: data, completion: .contentProcessed { [weak self] error in
-            if error != nil { self?.close() }
-        })
+        guard ready else { return }
+        conn.send(content: data, completion: .idempotent)
     }
 
+    /// Thread-safe; `onClose` is always delivered on the main queue.
     func close() {
-        if closed { return }
-        closed = true
-        authed = false
-        conn.stateUpdateHandler = nil
+        lock.lock()
+        if _closed { lock.unlock(); return }
+        _closed = true
+        lock.unlock()
         conn.cancel()
-        onClose?(self)
+        let finish = {
+            self.authed = false
+            self.onClose?(self)
+        }
+        if Thread.isMainThread { finish() } else { DispatchQueue.main.async(execute: finish) }
     }
 }

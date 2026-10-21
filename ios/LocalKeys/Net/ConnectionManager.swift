@@ -66,6 +66,8 @@ final class ConnectionManager: ObservableObject {
     private var scanner: NetworkScanner?
     private var deniedUntil: Date?
     private var lastAutoScan = Date.distantPast
+    /// Subnet probing is heavy (hundreds of connections): back off while it finds nothing.
+    private var autoScanEvery: TimeInterval = 40
     private var startedAt = Date()
     private var cancellables = Set<AnyCancellable>()
 
@@ -403,9 +405,14 @@ final class ConnectionManager: ObservableObject {
         }
         // Auto-discovery found nothing and no address is known/working: probe the subnet now and then.
         if settings.wifiEnabled, wifiLink?.authed != true, settings.manualHost.isEmpty, !scanning,
-           bonjourFound.isEmpty, now.timeIntervalSince(lastAutoScan) > 40, now.timeIntervalSince(startedAt) > 6 {
+           bonjourFound.isEmpty, now.timeIntervalSince(lastAutoScan) > autoScanEvery, now.timeIntervalSince(startedAt) > 6 {
             lastAutoScan = now
+            // USB already carries input: Wi-Fi is only a standby link, so look much less often.
+            autoScanEvery = usbLink?.authed == true ? 300 : min(autoScanEvery * 2, 240)
             scanNetwork()
+        }
+        if wifiLink?.authed == true || !bonjourFound.isEmpty {
+            autoScanEvery = 40
         }
         if settings.wifiEnabled, wifiLink == nil, now >= nextWifiAttempt {
             // While USB carries input, still keep a Wi-Fi link warm for instant failover.

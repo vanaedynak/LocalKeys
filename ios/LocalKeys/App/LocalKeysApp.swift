@@ -36,6 +36,7 @@ struct LocalKeysApp: App {
                         ConnectionManager.shared.start()
                     case .background:
                         ConnectionManager.shared.stop()
+                        LayoutStore.shared.flush()
                     default:
                         break
                     }

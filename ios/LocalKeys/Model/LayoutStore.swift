@@ -36,12 +36,36 @@ final class LayoutStore: ObservableObject {
         }
     }
 
+    private let saveQueue = DispatchQueue(label: "localkeys.save", qos: .utility)
+    private var pendingSave: DispatchWorkItem?
+
+    /// Encoding + writing happens off the main thread and is coalesced: dragging a key or a
+    /// slider in the editor changes the layout many times a second.
     private func save() {
-        do {
-            let data = try JSONEncoder().encode(custom)
-            try data.write(to: fileURL, options: .atomic)
-        } catch {
-            NSLog("LocalKeys: failed to save layouts: \(error)")
+        pendingSave?.cancel()
+        let snapshot = custom
+        let url = fileURL
+        let work = DispatchWorkItem {
+            do {
+                let data = try JSONEncoder().encode(snapshot)
+                try data.write(to: url, options: .atomic)
+            } catch {
+                NSLog("LocalKeys: failed to save layouts: \(error)")
+            }
+        }
+        pendingSave = work
+        saveQueue.asyncAfter(deadline: .now() + 0.5, execute: work)
+    }
+
+    /// Write any pending change now (the app is going to the background).
+    func flush() {
+        guard let work = pendingSave, !work.isCancelled else { return }
+        pendingSave = nil
+        work.cancel()
+        let snapshot = custom
+        let url = fileURL
+        saveQueue.sync {
+            if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: url, options: .atomic) }
         }
     }
 

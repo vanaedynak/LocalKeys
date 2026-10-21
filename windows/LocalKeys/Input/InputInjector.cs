@@ -95,7 +95,7 @@ internal static class InputInjector
     private static void Flush(List<INPUT> list)
     {
         if (list.Count == 0) return;
-        SendInput((uint)list.Count, list.ToArray(), InputSize);
+        lock (SendGate) SendInput((uint)list.Count, list.ToArray(), InputSize);
         list.Clear();
     }
 
