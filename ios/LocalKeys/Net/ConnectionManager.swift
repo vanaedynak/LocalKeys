@@ -33,6 +33,9 @@ final class ConnectionManager: ObservableObject {
     @Published private(set) var wifiLinked = false
     @Published private(set) var scanning = false
     @Published private(set) var statusDetail = ""
+    /// A known PC has not answered for a while: most likely the LocalKeys program on it isn't running.
+    @Published private(set) var pcUnresponsive = false
+    private var lostSince: Date?
     /// The user denied "Local Network" access: Wi-Fi discovery and connections cannot work.
     @Published private(set) var localNetworkDenied = false
 
@@ -458,6 +461,14 @@ final class ConnectionManager: ObservableObject {
         else { newPhase = .searching }
         if newPhase != phase { phase = newPhase }
 
+        if newPhase == .connected || newPhase == .idle || newPhase == .pairing {
+            lostSince = nil
+        } else if lostSince == nil {
+            lostSince = Date()
+        }
+        let knownPC = !settings.knownHosts.isEmpty || !settings.lastHost.isEmpty
+        update(\.pcUnresponsive, knownPC && (lostSince.map { Date().timeIntervalSince($0) > 15 } ?? false))
+
         if active == nil, pcState != nil {
             pcState = nil
             NotificationCenter.default.post(name: .lkLegendsChanged, object: nil)
@@ -468,6 +479,8 @@ final class ConnectionManager: ObservableObject {
         case .connected:
             let other = active?.kind == .usb ? (wifiLinked ? " · Wi-Fi в резерве" : "") : ""
             detail = "\(active?.kind == .usb ? "USB-кабель" : "Wi-Fi")\(other)"
+        case .searching where pcUnresponsive && !localNetworkDenied, .connecting where pcUnresponsive:
+            detail = "Компьютер не отвечает. Проверьте, что он включён, в той же сети и в трее есть значок LocalKeys (если нет — запустите LocalKeys из меню Пуск)."
         case .connecting:
             detail = "Подключение к \(wifiLink?.label ?? "ПК")…"
         case .pairing:

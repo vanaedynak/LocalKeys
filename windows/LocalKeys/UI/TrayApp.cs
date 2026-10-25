@@ -30,7 +30,12 @@ internal sealed class TrayApp : ApplicationContext
         menu.Items.Add(_autostartItem);
         menu.Items.Add(new ToolStripMenuItem("Отпустить все клавиши", null, (_, _) => _core.ReleaseEverything()));
         menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(new ToolStripMenuItem("Выход", null, (_, _) => ExitThread()));
+        menu.Items.Add(new ToolStripMenuItem("Выход (до следующего входа в Windows)", null, (_, _) =>
+        {
+            Log.Info("Exit requested from the tray");
+            Autostart.MarkUserExit(true);
+            ExitThread();
+        }));
         menu.Opening += (_, _) => _autostartItem.Checked = Autostart.IsEnabled();
 
         _tray = new NotifyIcon

@@ -285,7 +285,7 @@ struct ConnectionPill: View {
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundColor(statusColor)
             VStack(alignment: .leading, spacing: 0) {
-                Text(conn.phase == .connected ? conn.pcName : (conn.phase == .pairing ? "Сопряжение…" : "Поиск ПК…"))
+                Text(conn.phase == .connected ? conn.pcName : (conn.phase == .pairing ? "Сопряжение…" : (conn.pcUnresponsive ? "ПК не отвечает" : "Поиск ПК…")))
                     .font(.system(size: 13, weight: .semibold))
                     .lineLimit(1)
                 if conn.phase == .connected, let rtt = conn.rttMs {

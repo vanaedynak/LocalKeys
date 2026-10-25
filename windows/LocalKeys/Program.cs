@@ -39,6 +39,10 @@ internal static class Program
 
         bool autostart = args.Contains("--autostart");
 
+        // The user closed LocalKeys from the tray: stay closed until they start it again or sign in anew.
+        if (autostart && Autostart.UserExited()) return 0;
+        if (!autostart) Autostart.MarkUserExit(false);
+
         // A manual launch (Start menu) is not elevated: hand over to the elevated scheduled task
         // and ask the elevated agent to show its window.
         if (!Elevation.IsElevated && !args.Contains("--no-elevate") && Autostart.TaskExists())
@@ -82,6 +86,8 @@ internal static class Program
         Application.SetUnhandledExceptionMode(UnhandledExceptionMode.CatchException);
         Application.ThreadException += (_, e) => Log.Error("UI exception", e.Exception);
         AppDomain.CurrentDomain.UnhandledException += (_, e) => Log.Error("Unhandled", e.ExceptionObject as Exception);
+        Microsoft.Win32.SystemEvents.SessionEnding += (_, e) => Log.Info($"Windows session ending ({e.Reason})");
+        ThreadPool.QueueUserWorkItem(_ => Autostart.UpgradeTaskIfNeeded());
 
         var config = Config.Load();
         using var core = new AgentCore(config);
@@ -91,6 +97,8 @@ internal static class Program
         Application.Run(app);
 
         core.ReleaseEverything();
+        // Anything else that ends the process without this line was an external kill.
+        Log.Info("LocalKeys stopped normally");
         GC.KeepAlive(mutex);
         return 0;
     }
