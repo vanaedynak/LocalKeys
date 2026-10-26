@@ -98,6 +98,9 @@ struct MainView: View {
         .onAppear {
             if !settings.onboardingDone { sheet = .help }
             let env = ProcessInfo.processInfo.environment
+            if env["LK_SHEET"] == "settings" {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { sheet = .settings }
+            }
             if let e = env["LK_EDIT"], !e.isEmpty {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     startEditing()

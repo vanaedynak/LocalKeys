@@ -23,6 +23,25 @@ struct SettingsView: View {
                             Text("Українська").tag("ua")
                             Text("Нет").tag("none")
                         }
+                        VStack(alignment: .leading, spacing: 6) {
+                            HStack {
+                                Text("Размер второго языка")
+                                Spacer()
+                                Text("\(Int((s.altScale * 100).rounded()))% от основной").monospacedDigit().foregroundColor(.secondary)
+                            }
+                            Slider(value: $s.altScale, in: 0.4...1.0, step: 0.02)
+                        }
+                        Toggle(isOn: $s.altShifted) {
+                            VStack(alignment: .leading) {
+                                Text("Символы второго языка с Shift")
+                                Text("На цифрах и знаках справа вверху: например «\"» и «№» на 2 и 3, «,» на «/».")
+                                    .font(.caption).foregroundColor(.secondary)
+                            }
+                        }
+                        LegendPreview(altScale: s.altScale, altShifted: s.altShifted, secondLang: s.secondLang,
+                                      legendMode: s.legendMode, themeId: s.themeId)
+                            .frame(height: 76)
+                            .listRowInsets(EdgeInsets(top: 8, leading: 12, bottom: 8, trailing: 12))
                     }
                     Picker("Кнопка 🌐 переключает язык", selection: $s.langCombo) {
                         Text("Win + Пробел").tag("winSpace")
@@ -210,6 +229,58 @@ struct ConnectionView: View {
                     s.forgetAllPairings()
                     conn.reconnectWifi()
                 }
+            }
+        }
+    }
+}
+
+/// Live keycaps in the settings, drawn exactly like the keyboard, so the legend size can be tuned by eye.
+struct LegendPreview: UIViewRepresentable {
+    var altScale: Double
+    var altShifted: Bool
+    var secondLang: String
+    var legendMode: String
+    var themeId: String
+
+    private static let codes: [UInt16] = [0x29, 0x03, 0x04, 0x10, 0x1A, 0x27, 0x33, 0x35]
+
+    func makeUIView(context: Context) -> PreviewRow { PreviewRow(count: Self.codes.count) }
+
+    func updateUIView(_ v: PreviewRow, context: Context) {
+        let theme = KTheme.byId(themeId)
+        let resolved = Legends.resolve(settings: .shared, pc: ConnectionManager.shared.pcState)
+        for (i, code) in Self.codes.enumerated() {
+            let cap = v.caps[i]
+            cap.theme = theme
+            cap.style = .normal
+            let l = Legends.format(code, resolved, shift: false, altShifted: altShifted) ?? KeyLegend(main: KeyCatalog.cap(code))
+            cap.setLegend(main: l.main, top: l.top, alt: l.alt, altTop: l.altTop, altScale: CGFloat(altScale))
+            cap.applyColors()
+        }
+        v.backgroundColor = theme.bg
+    }
+
+    final class PreviewRow: UIView {
+        let caps: [KeyCapView]
+
+        init(count: Int) {
+            caps = (0..<count).map { _ in KeyCapView() }
+            super.init(frame: .zero)
+            layer.cornerRadius = 10
+            caps.forEach { addSubview($0) }
+        }
+
+        required init?(coder: NSCoder) { fatalError() }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            let gap: CGFloat = 5
+            let side = min(bounds.height - gap * 2, (bounds.width - gap * CGFloat(caps.count + 1)) / CGFloat(caps.count))
+            let total = side * CGFloat(caps.count) + gap * CGFloat(caps.count - 1)
+            var x = (bounds.width - total) / 2
+            for c in caps {
+                c.frame = CGRect(x: x, y: (bounds.height - side) / 2, width: side, height: side)
+                x += side + gap
             }
         }
     }

@@ -19,6 +19,10 @@ final class AppSettings: ObservableObject {
     @Published var bilingual: Bool { didSet { d.set(bilingual, forKey: "bilingual") } }
     /// Second language printed on keycaps while the PC is in English: ru | ua | none
     @Published var secondLang: String { didSet { d.set(secondLang, forKey: "secondLang") } }
+    /// Size of the second-language legend relative to the main one (0.4...1).
+    @Published var altScale: Double { didSet { d.set(altScale, forKey: "altScale") } }
+    /// Also show the second language's Shift symbols on digit / punctuation keys.
+    @Published var altShifted: Bool { didSet { d.set(altShifted, forKey: "altShifted") } }
     /// winSpace | altShift | ctrlShift
     @Published var langCombo: String { didSet { d.set(langCombo, forKey: "langCombo") } }
 
@@ -89,6 +93,8 @@ final class AppSettings: ObservableObject {
         legendMode = v("legendMode", "auto")
         bilingual = v("bilingual", true)
         secondLang = v("secondLang", "ru")
+        altScale = v("altScale", 0.72)
+        altShifted = v("altShifted", true)
         langCombo = v("langCombo", "winSpace")
         pointerSpeed = v("pointerSpeed", 1.0)
         pointerAccel = v("pointerAccel", 0.7)

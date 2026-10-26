@@ -38,6 +38,7 @@ final class KeyCapView: ElementView {
     private let mainLabel = UILabel()
     private let topLabel = UILabel()
     private let altLabel = UILabel()
+    private let altTopLabel = UILabel()
     private let fnLabel = UILabel()
     /// True while the Fn layer is active and this key has an Fn action.
     var fnLayer = false { didSet { if fnLayer != oldValue { applyColors() } } }
@@ -53,16 +54,18 @@ final class KeyCapView: ElementView {
     private var mainText = ""
     private var topText = ""
     private var altText = ""
+    private var altTopText = ""
+    private var altScale: CGFloat = 0.72
     private var captionText = ""
     private var symbolName: String?
-    private var fontKey: (unit: CGFloat, long: Bool) = (-1, false)
+    private var fontKey: (unit: CGFloat, long: Bool, alt: CGFloat, big: Bool) = (-1, false, 0, false)
     private var shadowSize = CGSize(width: -1, height: -1)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         layer.cornerRadius = 9
         layer.cornerCurve = .continuous
-        for l in [mainLabel, topLabel, altLabel, captionLabel, fnLabel] {
+        for l in [mainLabel, topLabel, altLabel, altTopLabel, captionLabel, fnLabel] {
             l.textAlignment = .center
             l.adjustsFontSizeToFitWidth = true
             l.minimumScaleFactor = 0.45
@@ -71,6 +74,7 @@ final class KeyCapView: ElementView {
         }
         topLabel.textAlignment = .left
         altLabel.textAlignment = .right
+        altTopLabel.textAlignment = .right
         fnLabel.textAlignment = .left
         icon.contentMode = .scaleAspectFit
         addSubview(icon)
@@ -81,13 +85,19 @@ final class KeyCapView: ElementView {
 
     required init?(coder: NSCoder) { fatalError() }
 
-    /// main: big centre text. top: small top-left (shifted symbol). alt: small bottom-right (second language).
+    /// main: big centre text. top: top-left (shifted symbol). alt: bottom-right (second language),
+    /// altTop: top-right (second language with Shift). altScale: second-language size vs. main.
     /// Text starting with "sf:" is an SF Symbol; "sf:name|Caption" shows an icon with a caption.
-    private var lastLegend: (String, String, String, String)?
+    private var lastLegend: [String]?
 
-    func setLegend(main: String, top: String = "", alt: String = "", fn: String = "") {
-        if let l = lastLegend, l == (main, top, alt, fn) { return }
-        lastLegend = (main, top, alt, fn)
+    func setLegend(main: String, top: String = "", alt: String = "", altTop: String = "",
+                   fn: String = "", altScale: CGFloat = 0.72) {
+        let key = [main, top, alt, altTop, fn, "\(altScale)"]
+        if lastLegend == key { return }
+        lastLegend = key
+        self.altScale = altScale
+        altTopText = altTop
+        altTopLabel.text = altTop
         fnLabel.text = fn
         if main.hasPrefix("sf:") {
             let body = String(main.dropFirst(3))
@@ -139,7 +149,8 @@ final class KeyCapView: ElementView {
         icon.tintColor = fg
         topLabel.textColor = pressed ? fg.withAlphaComponent(0.8) : theme.textDim
         fnLabel.textColor = pressed ? fg.withAlphaComponent(0.8) : theme.latched.withAlphaComponent(0.85)
-        altLabel.textColor = pressed ? fg.withAlphaComponent(0.8) : theme.accent.withAlphaComponent(0.85)
+        altLabel.textColor = pressed ? fg.withAlphaComponent(0.8) : theme.accent.withAlphaComponent(0.9)
+        altTopLabel.textColor = pressed ? fg.withAlphaComponent(0.75) : theme.accent.withAlphaComponent(0.75)
         led.isHidden = ledOn == nil
         led.backgroundColor = (ledOn ?? false) ? theme.latched : theme.textDim.withAlphaComponent(0.25)
         if latched && !pressed {
@@ -162,18 +173,26 @@ final class KeyCapView: ElementView {
         super.layoutSubviews()
         let w = bounds.width, h = bounds.height
         let unit = min(w, h)
-        let hasSub = !topText.isEmpty || !altText.isEmpty
+        let hasSub = !topText.isEmpty || !altText.isEmpty || !altTopText.isEmpty
         let small = max(min(unit * 0.22, 15), 8)
         let longMain = mainText.count > 2
-        // Fonts only depend on the key size and text length: don't rebuild them on every legend change.
-        if fontKey.unit != unit || fontKey.long != longMain {
-            fontKey = (unit, longMain)
-            let mainSize = min(unit * (longMain ? 0.27 : 0.4), 30)
+        let baseMain = min(unit * (longMain ? 0.27 : 0.4), 30)
+        let altSize = max(min(baseMain * altScale, 28), 8)
+        let altTopSize = max(min(altSize * 0.8, 20), 8)
+        // A large second language turns a letter key into a two-language keycap:
+        // active language upper-left, second language lower-right.
+        let bigAlt = !altText.isEmpty && altScale > 0.62 && !longMain
+        // Fonts only depend on the key size, text length and legend size: not rebuilt on every legend change.
+        if fontKey.unit != unit || fontKey.long != longMain || fontKey.alt != altScale || fontKey.big != bigAlt {
+            fontKey = (unit, longMain, altScale, bigAlt)
+            let mainSize = bigAlt ? baseMain * (1 - (altScale - 0.62) * 0.35) : baseMain
             mainLabel.font = .systemFont(ofSize: longMain ? max(mainSize, 11) : mainSize, weight: .medium)
             topLabel.font = .systemFont(ofSize: small, weight: .regular)
-            altLabel.font = .systemFont(ofSize: small, weight: .semibold)
+            altLabel.font = .systemFont(ofSize: altSize, weight: .semibold)
+            altTopLabel.font = .systemFont(ofSize: altTopSize, weight: .semibold)
             captionLabel.font = .systemFont(ofSize: max(min(unit * 0.17, 13), 8), weight: .medium)
-            }
+            fnLabel.font = .systemFont(ofSize: max(small * 0.85, 7.5), weight: .semibold)
+        }
 
         let inset: CGFloat = max(unit * 0.1, 4)
         if symbolName != nil {
@@ -185,16 +204,23 @@ final class KeyCapView: ElementView {
         } else {
             icon.frame = .zero
             captionLabel.frame = .zero
-            if hasSub && mainText.count <= 2 {
+            if bigAlt && topText.isEmpty {
+                // Letter: main in the upper-left area, second language in the lower-right.
+                mainLabel.frame = CGRect(x: inset * 0.6, y: inset * 0.3, width: w * 0.62, height: h - altSize * 0.95 - inset * 0.6)
+            } else if bigAlt {
+                // Symbol key: keep the centre clear of the bottom-right legend.
+                mainLabel.frame = CGRect(x: inset, y: h * 0.18, width: w * 0.68 - inset, height: h * 0.6)
+            } else if hasSub && !longMain {
                 mainLabel.frame = CGRect(x: inset, y: h * 0.2, width: w - inset * 2, height: h * 0.62)
             } else {
                 mainLabel.frame = bounds.insetBy(dx: inset, dy: inset * 0.5)
             }
         }
-        topLabel.frame = CGRect(x: inset, y: inset * 0.6, width: w - inset * 2, height: small * 1.3)
-        altLabel.frame = CGRect(x: inset, y: h - inset * 0.6 - small * 1.3, width: w - inset * 2, height: small * 1.3)
-        fnLabel.font = .systemFont(ofSize: max(small * 0.85, 7.5), weight: .semibold)
-        fnLabel.frame = CGRect(x: inset, y: h - inset * 0.6 - small * 1.3, width: (w - inset * 2) * (altText.isEmpty ? 1 : 0.6), height: small * 1.3)
+        topLabel.frame = CGRect(x: inset, y: inset * 0.6, width: (w - inset * 2) * 0.55, height: small * 1.3)
+        altTopLabel.frame = CGRect(x: w * 0.45, y: inset * 0.5, width: w * 0.55 - inset, height: altTopSize * 1.3)
+        altLabel.frame = CGRect(x: w * (bigAlt ? 0.36 : 0.2), y: h - inset * 0.5 - altSize * 1.25,
+                                width: w * (bigAlt ? 0.64 : 0.8) - inset * 0.8, height: altSize * 1.25)
+        fnLabel.frame = CGRect(x: inset, y: h - inset * 0.6 - small * 1.3, width: (w - inset * 2) * (altText.isEmpty ? 1 : 0.5), height: small * 1.3)
         led.frame = CGRect(x: w - inset - 6, y: inset, width: 6, height: 6)
         layer.cornerRadius = min(10, unit * 0.16)
         // Without an explicit path every shadow is an offscreen render pass in the system compositor:

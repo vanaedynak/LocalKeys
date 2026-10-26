@@ -2,6 +2,18 @@ import Foundation
 
 typealias LegendTable = [UInt16: (String, String)]
 
+/// What one printable keycap shows.
+struct KeyLegend: Equatable {
+    /// Big centre character (what the key types now).
+    var main = ""
+    /// Top-left: the same key with Shift (symbol keys).
+    var top = ""
+    /// Bottom-right: the second language.
+    var alt = ""
+    /// Top-right: the second language with Shift (only where it is a different symbol).
+    var altTop = ""
+}
+
 /// Built-in legends for the keycaps. When connected, the PC sends the exact legends of its
 /// active layout (any language), which take precedence in "auto" mode.
 enum Legends {
@@ -42,6 +54,36 @@ enum Legends {
         t[0x56] = ("\\", "/")
         return t
     }()
+
+    private static func isLetter(_ s: String) -> Bool { s.first?.isLetter ?? false }
+
+    /// Keycap legend of a printable key: the active language plus, when enabled, the second one
+    /// (letters, and punctuation that moves between layouts, e.g. EN "/" is "." in Russian).
+    static func format(_ code: UInt16, _ r: Resolved, shift: Bool, altShifted: Bool) -> KeyLegend? {
+        guard let pair = r.primary[code] else { return nil }
+        let (n, s) = pair
+        var l = KeyLegend()
+        if isLetter(n) {
+            l.main = n.uppercased()
+        } else {
+            l.main = shift ? s : n
+            let top = shift ? n : s
+            l.top = top == l.main ? "" : top
+        }
+        guard let sec = r.secondary?[code] else { return l }
+        let (sn, ss) = sec
+        if isLetter(sn) {
+            let a = sn.uppercased()
+            if a != l.main { l.alt = a }
+        } else if !sn.isEmpty, sn != n, sn != s {
+            l.alt = sn
+        }
+        // The second language's Shift symbol, where it differs (2 → " and 3 → № in Russian, / → ,).
+        if altShifted, !isLetter(sn), !ss.isEmpty, ss != sn, ss != n, ss != s, ss != l.alt {
+            l.altTop = ss
+        }
+        return l
+    }
 
     static func table(for lang: String) -> LegendTable {
         switch lang.uppercased() {

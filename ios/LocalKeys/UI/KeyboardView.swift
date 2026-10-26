@@ -145,7 +145,7 @@ final class KeyboardView: UIView {
         }
         updateSelection()
         // Legends follow the PC and modifiers through notifications; here only settings matter.
-        let sig = "\(settings.legendMode)|\(settings.bilingual)|\(settings.secondLang)"
+        let sig = "\(settings.legendMode)|\(settings.bilingual)|\(settings.secondLang)|\(settings.altScale)|\(settings.altShifted)"
         if sig != legendSig {
             legendSig = sig
             updateLegends()
@@ -308,8 +308,6 @@ final class KeyboardView: UIView {
 
     // MARK: legends & visual state
 
-    private func isLetter(_ s: String) -> Bool { s.first?.isLetter ?? false }
-
     private func effective(_ k: KeyDef, _ fn: Bool) -> KeyDef {
         guard fn, let f = k.fn else { return k }
         var e = k
@@ -331,32 +329,20 @@ final class KeyboardView: UIView {
         }
     }
 
-    private func legend(for k: KeyDef) -> (String, String, String) {
+    private func legend(for k: KeyDef) -> KeyLegend {
         if fnHeld > 0, k.fn != nil {
             return legend(for: effective(k, true))
         }
-        if let l = k.label, !l.isEmpty { return (l, "", "") }
-        guard case .key(let c) = k.action else { return (k.defaultCap(), "", "") }
+        if let l = k.label, !l.isEmpty { return KeyLegend(main: l) }
+        guard case .key(let c) = k.action else { return KeyLegend(main: k.defaultCap()) }
         if c == KC.space {
-            return (ConnectionManager.shared.pcState?.layoutName ?? "", "", "")
+            return KeyLegend(main: ConnectionManager.shared.pcState?.layoutName ?? "")
         }
-        if KeyCatalog.printable.contains(c), let pair = legends.primary[c] {
-            let (n, s) = pair
-            var alt = ""
-            if let sec = legends.secondary?[c] {
-                let sn = sec.0
-                if isLetter(sn) { alt = sn.uppercased() }
-            }
-            if isLetter(n) {
-                let main = n.uppercased()
-                return (main, "", alt == main ? "" : alt)
-            }
-            let shift = input.shiftActive
-            let main = shift ? s : n
-            let top = shift ? n : s
-            return (main, top == main ? "" : top, alt)
+        if KeyCatalog.printable.contains(c),
+           let l = Legends.format(c, legends, shift: input.shiftActive, altShifted: settings.altShifted) {
+            return l
         }
-        return (KeyCatalog.cap(c), "", "")
+        return KeyLegend(main: KeyCatalog.cap(c))
     }
 
     private var lastShift = false
@@ -368,8 +354,9 @@ final class KeyboardView: UIView {
         let pc = ConnectionManager.shared.pcState
         for k in layout.keys {
             guard let c = views[k.id] as? KeyCapView else { continue }
-            let (main, top, alt) = legend(for: k)
-            c.setLegend(main: main, top: top, alt: alt, fn: fnHeld > 0 ? "" : fnHint(k))
+            let l = legend(for: k)
+            c.setLegend(main: l.main, top: l.top, alt: l.alt, altTop: l.altTop,
+                        fn: fnHeld > 0 ? "" : fnHint(k), altScale: CGFloat(settings.altScale))
             c.fnLayer = fnHeld > 0 && k.fn != nil
             if case .key(let code) = k.action {
                 switch code {
