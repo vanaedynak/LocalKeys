@@ -45,6 +45,50 @@ struct StickConfig: Codable, Hashable {
     var sprintLatch: Bool? = nil
 }
 
+/// What turning a scroll wheel strip does. One detent = one step.
+enum WheelMode: String, Codable, CaseIterable, Identifiable {
+    case scroll, hscroll, volume, zoom, tabs, windows, undo, arrows
+
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .scroll: return "Прокрутка"
+        case .hscroll: return "Прокрутка вбок"
+        case .volume: return "Громкость"
+        case .zoom: return "Масштаб (Ctrl + колесо)"
+        case .tabs: return "Вкладки (Ctrl+Tab)"
+        case .windows: return "Окна (Alt+Tab)"
+        case .undo: return "Отменить / повторить"
+        case .arrows: return "Стрелки"
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .scroll: return "arrow.up.arrow.down"
+        case .hscroll: return "arrow.left.arrow.right"
+        case .volume: return "speaker.wave.2.fill"
+        case .zoom: return "plus.magnifyingglass"
+        case .tabs: return "square.on.square"
+        case .windows: return "macwindow.on.rectangle"
+        case .undo: return "arrow.uturn.backward"
+        case .arrows: return "arrow.up.and.down.square"
+        }
+    }
+    var isScroll: Bool { self == .scroll || self == .hscroll }
+}
+
+struct WheelConfig: Codable, Hashable {
+    var mode: WheelMode = .scroll
+    /// Distance between detents in points. nil = 26.
+    var notch: Double? = nil
+    /// Scroll modes: pixel-smooth scrolling instead of whole notches.
+    var smooth: Bool? = nil
+    /// Scroll modes: keep spinning after a flick, like a free-spinning wheel. nil = on.
+    var spin: Bool? = nil
+    /// Reverse the direction.
+    var invert: Bool? = nil
+}
+
 enum KeyAction: Codable, Hashable {
     case key(UInt16)
     case combo([UInt16])
@@ -56,10 +100,11 @@ enum KeyAction: Codable, Hashable {
     case trackpad
     case mouseLook
     case stick(StickConfig)
+    case scrollWheel(WheelConfig)
 
     var isZone: Bool {
         switch self {
-        case .trackpad, .mouseLook, .stick: return true
+        case .trackpad, .mouseLook, .stick, .scrollWheel: return true
         default: return false
         }
     }
@@ -135,6 +180,7 @@ extension KeyDef {
         case .trackpad: return "Тачпад"
         case .mouseLook: return "Обзор"
         case .stick: return "Стик"
+        case .scrollWheel(let c): return c.mode.title
         }
     }
 }

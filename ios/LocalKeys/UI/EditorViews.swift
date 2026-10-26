@@ -47,7 +47,8 @@ struct KeyInspectorView: View {
         case key = "Клавиша"
         case combo = "Сочетание"
         case mouse = "Кнопка мыши"
-        case wheel = "Колесо мыши"
+        case wheel = "Кнопка колеса"
+        case wheelStrip = "Колесо (полоса)"
         case text = "Ввод текста"
         case special = "Действие"
         case layout = "Сменить раскладку"
@@ -70,6 +71,7 @@ struct KeyInspectorView: View {
             case .trackpad: return .trackpad
             case .mouseLook: return .look
             case .stick: return .stick
+            case .scrollWheel: return .wheelStrip
             }
         }, set: { k in
             switch k {
@@ -83,6 +85,7 @@ struct KeyInspectorView: View {
             case .trackpad: key.action = .trackpad
             case .look: key.action = .mouseLook
             case .stick: key.action = .stick(StickConfig())
+            case .wheelStrip: key.action = .scrollWheel(WheelConfig())
             }
         })
     }
@@ -214,6 +217,49 @@ struct KeyInspectorView: View {
                 .font(.footnote).foregroundColor(.secondary)
         case .stick(let cfg):
             stickEditor(cfg)
+        case .scrollWheel(let cfg):
+            wheelEditor(cfg)
+        }
+    }
+
+    private func wheelEditor(_ cfg: WheelConfig) -> some View {
+        func update(_ f: (inout WheelConfig) -> Void) {
+            var c = cfg
+            f(&c)
+            key.action = .scrollWheel(c)
+        }
+        return Group {
+            Picker("Что делает", selection: Binding(get: { cfg.mode }, set: { v in update { $0.mode = v } })) {
+                ForEach(WheelMode.allCases) { Label($0.title, systemImage: $0.symbol).tag($0) }
+            }
+            VStack(alignment: .leading) {
+                Text("Шаг деления: \(Int(cfg.notch ?? 26)) pt — одно деление = один шаг")
+                Slider(value: Binding(get: { cfg.notch ?? 26 }, set: { v in update { $0.notch = v.rounded() } }), in: 12...60)
+            }
+            if cfg.mode.isScroll {
+                Toggle(isOn: Binding(get: { cfg.smooth == true }, set: { v in update { $0.smooth = v } })) {
+                    VStack(alignment: .leading) {
+                        Text("Плавная прокрутка")
+                        Text("Без щелчков: страница едет вслед за пальцем. Выключено — по строкам, как обычное колесо.")
+                            .font(.caption).foregroundColor(.secondary)
+                    }
+                }
+                Toggle("Докручивать по инерции после взмаха", isOn: Binding(get: { cfg.spin ?? true }, set: { v in update { $0.spin = v } }))
+            }
+            Toggle("Обратное направление", isOn: Binding(get: { cfg.invert == true }, set: { v in update { $0.invert = v } }))
+            Text(wheelHelp(cfg.mode)).font(.footnote).foregroundColor(.secondary)
+        }
+    }
+
+    private func wheelHelp(_ m: WheelMode) -> String {
+        switch m {
+        case .scroll, .hscroll: return "Ведите одним пальцем вдоль колеса. Касание — средняя кнопка мыши. Вертикальное или горизонтальное колесо — по форме элемента."
+        case .volume: return "Вверх / вправо — громче. Касание — выключить звук."
+        case .zoom: return "Ctrl + колесо: масштаб в браузере, документах, картинках."
+        case .tabs: return "Переключение вкладок в браузере и редакторах."
+        case .windows: return "Пока палец на колесе, открыт переключатель окон (Alt+Tab); отпустите палец, чтобы выбрать окно."
+        case .undo: return "Назад — отменить (Ctrl+Z), вперёд — повторить (Ctrl+Y)."
+        case .arrows: return "Шаг — нажатие стрелки: списки, меню, курсор в тексте."
         }
     }
 
@@ -286,9 +332,90 @@ struct KeyInspectorView: View {
     }
 }
 
+/// Where a group keeps its place while being scaled.
+enum GroupAnchor: String, CaseIterable, Identifiable {
+    case bottom, center, top, bottomLeft, bottomRight
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .bottom: return "Снизу"
+        case .center: return "Центр"
+        case .top: return "Сверху"
+        case .bottomLeft: return "Слева снизу"
+        case .bottomRight: return "Справа снизу"
+        }
+    }
+    /// Anchor point inside the group's bounding box (0...1).
+    var unit: (x: Double, y: Double) {
+        switch self {
+        case .bottom: return (0.5, 1)
+        case .center: return (0.5, 0.5)
+        case .top: return (0.5, 0)
+        case .bottomLeft: return (0, 1)
+        case .bottomRight: return (1, 1)
+        }
+    }
+}
+
+/// Scale / place several elements at once (e.g. all keys smaller, trackpad untouched).
+struct GroupInspectorView: View {
+    let count: Int
+    var onScale: (Double, GroupAnchor) -> Void
+    var onCenter: () -> Void
+    var onDelete: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var scale = 1.0
+    @State private var anchor: GroupAnchor = .bottom
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section {
+                    HStack {
+                        Text("Размер")
+                        Spacer()
+                        Text("\(Int((scale * 100).rounded()))%").monospacedDigit().foregroundColor(.secondary)
+                    }
+                    Slider(value: $scale, in: 0.4...1.6, step: 0.01)
+                    HStack {
+                        ForEach([0.7, 0.8, 0.9, 1.0, 1.1], id: \.self) { v in
+                            Button("\(Int(v * 100))%") { scale = v }
+                                .buttonStyle(.bordered)
+                        }
+                    }
+                    Picker("Неподвижная точка", selection: $anchor) {
+                        ForEach(GroupAnchor.allCases) { Text($0.title).tag($0) }
+                    }
+                } header: {
+                    Text("Выбрано элементов: \(count)")
+                } footer: {
+                    Text("Все выбранные элементы меняют размер вместе, сохраняя расстановку. Остальное (например, тачпад) не меняется. Двигать группу — перетаскиванием любого выбранного элемента.")
+                }
+                Section {
+                    Button("Выровнять по центру экрана") {
+                        onCenter()
+                        scale = 1
+                    }
+                    Button("Удалить выбранные", role: .destructive) { onDelete() }
+                }
+            }
+            .navigationTitle("Группа")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) { Button("Готово") { dismiss() } }
+            }
+            .onChange(of: scale) { onScale($0, anchor) }
+            .onChange(of: anchor) { onScale(scale, $0) }
+        }
+    }
+}
+
 struct LayoutPropertiesView: View {
     @Binding var layout: KBLayout
+    /// Built-in layout changed by the user: offer the factory version back.
+    var onReset: (() -> Void)? = nil
     @Environment(\.dismiss) private var dismiss
+    @State private var confirmReset = false
 
     private let icons = ["keyboard", "gamecontroller", "l.joystick", "laptopcomputer", "command", "number.square",
                          "square.grid.3x3", "star", "bolt", "paintbrush", "music.note", "film", "flame", "cpu"]
@@ -317,6 +444,16 @@ struct LayoutPropertiesView: View {
                         let maxY = layout.keys.map { $0.y + $0.h }.max() ?? layout.rows
                         layout.cols = max(2, maxX)
                         layout.rows = max(1, maxY)
+                    }
+                }
+                if let onReset {
+                    Section {
+                        Button("Сбросить к стандартной", role: .destructive) { confirmReset = true }
+                    } footer: {
+                        Text("Вернуть встроенную раскладку «\(layout.name)» к исходному виду. Ваши изменения в ней пропадут.")
+                    }
+                    .confirmationDialog("Сбросить раскладку к стандартной?", isPresented: $confirmReset, titleVisibility: .visible) {
+                        Button("Сбросить", role: .destructive) { onReset() }
                     }
                 }
             }

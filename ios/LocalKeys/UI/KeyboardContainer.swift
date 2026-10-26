@@ -20,12 +20,16 @@ struct KeyboardContainer: UIViewControllerRepresentable {
     var selectedId: UUID?
     var vpos: Double
     var scale: Double
+    var group: Set<UUID> = []
+    var multiSelect = false
     var onSelect: (UUID?) -> Void
     var onEdited: (KBLayout) -> Void
     var onSpecial: (SpecialAction) -> Void
     var onSwitchLayout: (String) -> Void
     var onEditTap: (UUID) -> Void = { _ in }
     var onFilled: (KBLayout) -> Void = { _ in }
+    var onGroup: (Set<UUID>) -> Void = { _ in }
+    var onGroupTap: () -> Void = {}
 
     func makeUIViewController(context: Context) -> KeyboardViewController {
         KeyboardViewController()
@@ -39,7 +43,10 @@ struct KeyboardContainer: UIViewControllerRepresentable {
         kb.onSwitchLayout = onSwitchLayout
         kb.onEditTap = onEditTap
         kb.onFilled = onFilled
+        kb.onGroup = onGroup
+        kb.onGroupTap = onGroupTap
         kb.apply(layout: layout, theme: theme, gap: CGFloat(gap), editing: editing,
-                 selectedId: selectedId, vpos: CGFloat(vpos), scale: CGFloat(scale))
+                 selectedId: selectedId, vpos: CGFloat(vpos), scale: CGFloat(scale),
+                 group: group, multiSelect: multiSelect)
     }
 }

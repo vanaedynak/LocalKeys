@@ -9,12 +9,17 @@ struct LayoutsView: View {
     @State private var newName = ""
     @State private var importFailed = false
     @State private var copied = false
+    @State private var resetting: KBLayout?
 
     var body: some View {
         NavigationStack {
             List {
-                Section("Встроенные") {
+                Section {
                     ForEach(store.builtins) { l in row(l) }
+                } header: {
+                    Text("Встроенные")
+                } footer: {
+                    Text("Встроенные раскладки меняются прямо на месте. Вернуть исходный вид — «Сбросить к стандартной» в меню раскладки.")
                 }
                 Section {
                     ForEach(store.custom) { l in row(l) }
@@ -34,7 +39,7 @@ struct LayoutsView: View {
                 } header: {
                     Text("Мои раскладки")
                 } footer: {
-                    Text("Любую раскладку можно изменить: встроенная при этом копируется в «Мои». Раскладками можно делиться через буфер обмена (JSON).")
+                    Text("Свои раскладки — копии и новые. Раскладками можно делиться через буфер обмена (JSON).")
                 }
             }
             .navigationTitle("Раскладки")
@@ -60,6 +65,17 @@ struct LayoutsView: View {
             .alert("JSON раскладки скопирован", isPresented: $copied) {
                 Button("OK", role: .cancel) {}
             }
+            .confirmationDialog("Сбросить «\(resetting?.name ?? "")» к стандартной?",
+                                isPresented: Binding(get: { resetting != nil }, set: { if !$0 { resetting = nil } }),
+                                titleVisibility: .visible) {
+                Button("Сбросить", role: .destructive) {
+                    if let l = resetting {
+                        store.resetBuiltin(l.id)
+                        AppSettings.shared.placements[l.id] = nil
+                    }
+                    resetting = nil
+                }
+            }
         }
     }
 
@@ -72,7 +88,8 @@ struct LayoutsView: View {
                     Image(systemName: l.icon).frame(width: 28)
                     VStack(alignment: .leading) {
                         Text(l.name).foregroundColor(.primary)
-                        Text("\(l.keys.count) элементов").font(.caption).foregroundColor(.secondary)
+                        Text(l.builtIn && store.isModified(l.id) ? "\(l.keys.count) элементов · изменена" : "\(l.keys.count) элементов")
+                            .font(.caption).foregroundColor(.secondary)
                     }
                     Spacer()
                     if l.id == store.currentId { Image(systemName: "checkmark").foregroundColor(.accentColor) }
@@ -90,6 +107,8 @@ struct LayoutsView: View {
                 } label: { Label("Скопировать JSON", systemImage: "doc.on.doc") }
                 if !l.builtIn {
                     Button(role: .destructive) { store.delete(id: l.id) } label: { Label("Удалить", systemImage: "trash") }
+                } else if store.isModified(l.id) {
+                    Button(role: .destructive) { resetting = l } label: { Label("Сбросить к стандартной", systemImage: "arrow.counterclockwise") }
                 }
             } label: {
                 Image(systemName: "ellipsis.circle").font(.system(size: 20)).padding(.leading, 8)

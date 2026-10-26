@@ -2,20 +2,34 @@ import Foundation
 import Combine
 
 /// Built-in layouts (regenerated on launch, so app updates improve them) + user layouts (persisted).
+/// A built-in layout can be edited in place: the edited version is kept as an override until reset.
 final class LayoutStore: ObservableObject {
     static let shared = LayoutStore()
 
     @Published private(set) var custom: [KBLayout] = []
+    @Published private(set) var overrides: [String: KBLayout] = [:]
     @Published var currentId: String {
         didSet { UserDefaults.standard.set(currentId, forKey: "currentLayout") }
     }
 
-    let builtins: [KBLayout] = BuiltinLayouts.all
+    /// Factory versions of the built-in layouts.
+    private let defaults: [KBLayout] = BuiltinLayouts.all
 
-    private let fileURL: URL = {
-        let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return dir.appendingPathComponent("layouts.json")
-    }()
+    /// Built-in layouts as the user sees them (with their edits).
+    var builtins: [KBLayout] { defaults.map { overrides[$0.id] ?? $0 } }
+
+    func isModified(_ id: String) -> Bool { overrides[id] != nil }
+
+    /// Back to the factory version of a built-in layout.
+    func resetBuiltin(_ id: String) {
+        guard overrides[id] != nil else { return }
+        overrides[id] = nil
+        save()
+    }
+
+    private static let dir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+    private let fileURL = LayoutStore.dir.appendingPathComponent("layouts.json")
+    private let overridesURL = LayoutStore.dir.appendingPathComponent("builtin-overrides.json")
 
     private init() {
         currentId = UserDefaults.standard.string(forKey: "currentLayout") ?? "builtin.laptop"
@@ -30,9 +44,22 @@ final class LayoutStore: ObservableObject {
     func layout(id: String) -> KBLayout? { all.first { $0.id == id } }
 
     private func load() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-        if let list = try? JSONDecoder().decode([KBLayout].self, from: data) {
+        if let data = try? Data(contentsOf: fileURL),
+           let list = try? JSONDecoder().decode([KBLayout].self, from: data) {
             custom = list
+        }
+        if let data = try? Data(contentsOf: overridesURL),
+           let dict = try? JSONDecoder().decode([String: KBLayout].self, from: data) {
+            overrides = dict.filter { id, _ in defaults.contains { $0.id == id } }
+        }
+    }
+
+    private static func write(_ custom: [KBLayout], _ overrides: [String: KBLayout], _ url: URL, _ overridesURL: URL) {
+        do {
+            try JSONEncoder().encode(custom).write(to: url, options: .atomic)
+            try JSONEncoder().encode(overrides).write(to: overridesURL, options: .atomic)
+        } catch {
+            NSLog("LocalKeys: failed to save layouts: \(error)")
         }
     }
 
@@ -43,16 +70,9 @@ final class LayoutStore: ObservableObject {
     /// slider in the editor changes the layout many times a second.
     private func save() {
         pendingSave?.cancel()
-        let snapshot = custom
-        let url = fileURL
-        let work = DispatchWorkItem {
-            do {
-                let data = try JSONEncoder().encode(snapshot)
-                try data.write(to: url, options: .atomic)
-            } catch {
-                NSLog("LocalKeys: failed to save layouts: \(error)")
-            }
-        }
+        let snapshot = custom, ov = overrides
+        let url = fileURL, ovURL = overridesURL
+        let work = DispatchWorkItem { Self.write(snapshot, ov, url, ovURL) }
         pendingSave = work
         saveQueue.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
@@ -62,11 +82,9 @@ final class LayoutStore: ObservableObject {
         guard let work = pendingSave, !work.isCancelled else { return }
         pendingSave = nil
         work.cancel()
-        let snapshot = custom
-        let url = fileURL
-        saveQueue.sync {
-            if let data = try? JSONEncoder().encode(snapshot) { try? data.write(to: url, options: .atomic) }
-        }
+        let snapshot = custom, ov = overrides
+        let url = fileURL, ovURL = overridesURL
+        saveQueue.sync { Self.write(snapshot, ov, url, ovURL) }
     }
 
     /// Creates an editable copy and makes it current.
@@ -93,7 +111,13 @@ final class LayoutStore: ObservableObject {
     }
 
     func update(_ l: KBLayout) {
-        guard !l.builtIn, let i = custom.firstIndex(where: { $0.id == l.id }) else { return }
+        if l.builtIn {
+            guard defaults.contains(where: { $0.id == l.id }), overrides[l.id] != l else { return }
+            overrides[l.id] = l
+            save()
+            return
+        }
+        guard let i = custom.firstIndex(where: { $0.id == l.id }) else { return }
         if custom[i] != l {
             custom[i] = l
             save()

@@ -39,7 +39,32 @@ private struct LB {
 }
 
 enum BuiltinLayouts {
-    static var all: [KBLayout] { [laptop, full, darkProject68, gaming, gamingStick, trackpad, numpad, shortcuts] }
+    static var all: [KBLayout] { [laptop, full, darkProject68, gaming, gamingStick, trackpad, remote, numpad, shortcuts] }
+
+    /// Couch / one-hand control: trackpad, a big scroll wheel and wheels for volume, windows,
+    /// tabs and zoom, media keys and the few keys you need without a keyboard.
+    static var remote: KBLayout {
+        var b = LB()
+        b.put(.trackpad, 0, 0, 9.4, 6.5)
+        b.put(.scrollWheel(WheelConfig()), 9.5, 0, 1.5, 6.5)
+        b.put(.scrollWheel(WheelConfig(mode: .volume)), 11.1, 0, 4.9, 1.2)
+        b.row(1.3, h: 1.1, x: 11.1)
+        b.k(KC.prevTrack, 1.63); b.k(KC.playPause, 1.64); b.k(KC.nextTrack, 1.63)
+        b.put(.scrollWheel(WheelConfig(mode: .windows)), 11.1, 2.5, 4.9, 1.2)
+        b.put(.scrollWheel(WheelConfig(mode: .tabs)), 11.1, 3.8, 4.9, 1.2)
+        b.put(.scrollWheel(WheelConfig(mode: .zoom)), 11.1, 5.1, 4.9, 1.4)
+        b.row(6.6, h: 1.4)
+        b.a(.mouse(0), 3, "ЛКМ")
+        b.k(KC.esc, 1.43)
+        b.a(.combo([KC.lctrl, KC.c]), 1.43, "sf:doc.on.doc|Копировать")
+        b.a(.combo([KC.lctrl, KC.v]), 1.43, "sf:doc.on.clipboard|Вставить")
+        b.k(KC.enter, 1.42)
+        b.a(.special(.textPanel), 1.43)
+        b.a(.special(.langSwitch), 1.43)
+        b.a(.combo([KC.lwin, KC.d]), 1.43, "sf:menubar.dock.rectangle|Рабочий стол")
+        b.a(.mouse(1), 3, "ПКМ")
+        return KBLayout(id: "builtin.remote", name: "Пульт", icon: "tv.and.mediabox", cols: 16, rows: 8, keys: b.keys, builtIn: true)
+    }
 
     /// 65% / 68 keys, modelled after Dark Project 68 Sunrise (ANSI): no F-row and no nav cluster,
     /// right column `~ / Del / PgUp / PgDn, arrows; F1–F12 and media on the Fn layer.
@@ -144,8 +169,9 @@ enum BuiltinLayouts {
         var b = LB()
         keyboard75(&b)
         b.put(.mouse(0), 0, 5.95, 3.4, 2.65, "ЛКМ")
-        b.put(.trackpad, 3.5, 5.95, 9, 2.65)
-        b.put(.mouse(1), 12.6, 5.95, 3.4, 2.65, "ПКМ")
+        b.put(.trackpad, 3.5, 5.95, 8.0, 2.65)
+        b.put(.scrollWheel(WheelConfig()), 11.6, 5.95, 1.1, 2.65)
+        b.put(.mouse(1), 12.8, 5.95, 3.2, 2.65, "ПКМ")
         return KBLayout(id: "builtin.laptop", name: "Ноутбук", icon: "laptopcomputer", cols: 16, rows: 8.6, keys: b.keys, builtIn: true)
     }
 

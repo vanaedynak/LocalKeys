@@ -4,6 +4,8 @@ import UIKit
 class ElementView: UIView {
     var theme: KTheme = .midnight
     var selectedForEdit = false { didSet { updateEditChrome() } }
+    /// Part of a multi-element selection: framed, but resizing is per element only.
+    var groupMember = false { didSet { updateEditChrome() } }
     let editHandle = UIView()
 
     override init(frame: CGRect) {
@@ -23,7 +25,7 @@ class ElementView: UIView {
     }
 
     func updateEditChrome() {
-        editHandle.isHidden = !selectedForEdit
+        editHandle.isHidden = !selectedForEdit || groupMember
         editHandle.backgroundColor = theme.accent
         editHandle.layer.borderColor = UIColor.white.cgColor
         layer.borderWidth = selectedForEdit ? 2.5 : (theme.border == .clear ? 0 : 1)

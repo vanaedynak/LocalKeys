@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum SheetKind: String, Identifiable {
-    case settings, connection, layouts, text, inspector, help
+    case settings, connection, layouts, text, inspector, help, group
     var id: String { rawValue }
 }
 
@@ -15,6 +15,10 @@ struct MainView: View {
     @State private var editing = false
     @State private var selectedId: UUID?
     @State private var editLayout: KBLayout?
+    @State private var group: Set<UUID> = []
+    @State private var multiSelect = false
+    /// Group positions when the group panel opened: scaling is always computed from these.
+    @State private var groupSnapshot: [KeyDef] = []
 
     private var theme: KTheme { KTheme.byId(settings.themeId) }
 
@@ -24,11 +28,18 @@ struct MainView: View {
             if editing {
                 EditorBar(theme: theme,
                           layoutName: layout.name,
-                          hasSelection: selectedId != nil,
+                          hasSelection: selectedId != nil || !group.isEmpty,
+                          groupCount: group.count,
+                          multiSelect: multiSelect,
                           onAdd: addElement,
-                          onInspect: { sheet = .inspector },
+                          onInspect: { if group.isEmpty { sheet = .inspector } else { openGroupPanel() } },
                           onDuplicate: duplicateSelected,
                           onDelete: deleteSelected,
+                          onSelect: selectMany,
+                          onToggleMulti: {
+                              multiSelect.toggle()
+                              if multiSelect, let id = selectedId { group.insert(id); selectedId = nil }
+                          },
                           onDone: finishEditing)
             } else if settings.showTopBar {
                 TopBar(theme: theme, onOpen: { sheet = $0 }, onEdit: startEditing)
@@ -40,6 +51,8 @@ struct MainView: View {
                               selectedId: selectedId,
                               vpos: settings.vpos(layout.id),
                               scale: settings.scale(layout.id),
+                              group: editing ? group : [],
+                              multiSelect: editing && multiSelect,
                               onSelect: { selectedId = $0 },
                               onEdited: { l in
                                   editLayout = l
@@ -55,7 +68,9 @@ struct MainView: View {
                                   // The layout now covers the whole screen at its current size.
                                   settings.placements[l.id] = nil
                                   commit(l)
-                              })
+                              },
+                              onGroup: { group = $0 },
+                              onGroupTap: openGroupPanel)
                 .ignoresSafeArea(.container, edges: [.bottom, .horizontal])
         }
         .background(Color(uiColor: theme.bg).ignoresSafeArea())
@@ -82,8 +97,14 @@ struct MainView: View {
         .preferredColorScheme(theme.isLight ? .light : .dark)
         .onAppear {
             if !settings.onboardingDone { sheet = .help }
-            if ProcessInfo.processInfo.environment["LK_EDIT"] != nil {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { startEditing() }
+            let env = ProcessInfo.processInfo.environment
+            if let e = env["LK_EDIT"], !e.isEmpty {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                    startEditing()
+                    if env["LK_GROUP"] == "keys" {
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { selectMany(.keys) }
+                    }
+                }
             }
         }
     }
@@ -103,23 +124,29 @@ struct MainView: View {
                     sheet = nil
                 })
             } else {
-                LayoutPropertiesView(layout: layoutBinding())
+                let l = editLayout ?? store.current
+                LayoutPropertiesView(layout: layoutBinding(),
+                                     onReset: l.builtIn && store.isModified(l.id) ? { resetBuiltin(l.id) } : nil)
             }
+        case .group:
+            GroupInspectorView(count: group.count,
+                               onScale: scaleGroup,
+                               onCenter: centerGroup,
+                               onDelete: {
+                                   deleteSelected()
+                                   sheet = nil
+                               })
         }
     }
 
     // MARK: editing
 
     private func startEditing() {
-        var l = store.current
-        if l.builtIn {
-            let original = l
-            l = store.duplicate(l)
-            // Keep the height/size the user set, so the editor opens exactly where the keyboard was.
-            if let p = settings.placements[original.id] { settings.placements[l.id] = p }
-        }
-        editLayout = l
+        // Built-in layouts are edited in place (kept as the user's version until reset).
+        editLayout = store.current
         selectedId = nil
+        group = []
+        multiSelect = false
         editing = true
     }
 
@@ -127,7 +154,91 @@ struct MainView: View {
         if let l = editLayout { store.update(l) }
         editing = false
         selectedId = nil
+        group = []
+        multiSelect = false
         editLayout = nil
+    }
+
+    private func resetBuiltin(_ id: String) {
+        store.resetBuiltin(id)
+        settings.placements[id] = nil
+        sheet = nil
+        editing = false
+        selectedId = nil
+        group = []
+        multiSelect = false
+        editLayout = nil
+    }
+
+    // MARK: group
+
+    private func selectMany(_ which: EditorBar.Selection) {
+        guard let l = editLayout else { return }
+        selectedId = nil
+        switch which {
+        case .keys:
+            // Everything typed with: no trackpad / look zones / stick / wheels and no mouse buttons.
+            group = Set(l.keys.filter { k in
+                if k.action.isZone { return false }
+                if case .mouse = k.action { return false }
+                return true
+            }.map { $0.id })
+        case .all:
+            group = Set(l.keys.map { $0.id })
+        case .none:
+            group = []
+            multiSelect = false
+        }
+    }
+
+    private func openGroupPanel() {
+        guard let l = editLayout, !group.isEmpty else { return }
+        groupSnapshot = l.keys.filter { group.contains($0.id) }
+        sheet = .group
+    }
+
+    private func scaleGroup(_ factor: Double, _ anchor: GroupAnchor) {
+        guard var l = editLayout, !groupSnapshot.isEmpty,
+              let minX = groupSnapshot.map({ $0.x }).min(), let maxX = groupSnapshot.map({ $0.x + $0.w }).max(),
+              let minY = groupSnapshot.map({ $0.y }).min(), let maxY = groupSnapshot.map({ $0.y + $0.h }).max() else { return }
+        let ax = minX + (maxX - minX) * anchor.unit.x
+        let ay = minY + (maxY - minY) * anchor.unit.y
+        var scaled = groupSnapshot.map { k -> KeyDef in
+            var n = k
+            n.x = ax + (k.x - ax) * factor
+            n.y = ay + (k.y - ay) * factor
+            n.w = k.w * factor
+            n.h = k.h * factor
+            return n
+        }
+        // Keep the block on the canvas.
+        let nMinX = scaled.map { $0.x }.min() ?? 0, nMaxX = scaled.map { $0.x + $0.w }.max() ?? 0
+        let nMinY = scaled.map { $0.y }.min() ?? 0, nMaxY = scaled.map { $0.y + $0.h }.max() ?? 0
+        let sx = nMinX < 0 ? -nMinX : min(0, l.cols - nMaxX)
+        let sy = nMinY < 0 ? -nMinY : min(0, l.rows - nMaxY)
+        func r(_ v: Double) -> Double { (v * 100).rounded() / 100 }
+        for i in scaled.indices {
+            scaled[i].x = r(scaled[i].x + sx)
+            scaled[i].y = r(scaled[i].y + sy)
+            scaled[i].w = r(scaled[i].w)
+            scaled[i].h = r(scaled[i].h)
+        }
+        let byId = Dictionary(uniqueKeysWithValues: scaled.map { ($0.id, $0) })
+        for i in l.keys.indices { if let n = byId[l.keys[i].id] { l.keys[i] = n } }
+        commit(l)
+    }
+
+    /// Centres the group horizontally; the current positions become the new base for scaling.
+    private func centerGroup() {
+        guard var l = editLayout else { return }
+        let members = l.keys.filter { group.contains($0.id) }
+        guard let minX = members.map({ $0.x }).min(), let maxX = members.map({ $0.x + $0.w }).max() else { return }
+        let dx = ((l.cols - (maxX - minX)) / 2 - minX)
+        for i in l.keys.indices where group.contains(l.keys[i].id) {
+            l.keys[i].x = ((l.keys[i].x + dx) * 100).rounded() / 100
+        }
+        commit(l)
+        groupSnapshot = l.keys.filter { group.contains($0.id) }
     }
 
     private func commit(_ l: KBLayout) {
@@ -159,6 +270,7 @@ struct MainView: View {
         switch action {
         case .trackpad, .mouseLook: w = 5; h = 3
         case .stick: w = 3.5; h = 3.5
+        case .scrollWheel: w = 1.2; h = 3
         default: break
         }
         w = min(w, l.cols)
@@ -171,6 +283,21 @@ struct MainView: View {
     }
 
     private func duplicateSelected() {
+        if !group.isEmpty {
+            guard var l = editLayout else { return }
+            var copies: [KeyDef] = []
+            for k in l.keys where group.contains(k.id) {
+                var c = k
+                c.id = UUID()
+                c.x = min(k.x + 0.5, max(0, l.cols - k.w))
+                c.y = min(k.y + 0.5, max(0, l.rows - k.h))
+                copies.append(c)
+            }
+            l.keys += copies
+            commit(l)
+            group = Set(copies.map { $0.id })
+            return
+        }
         guard var l = editLayout, let id = selectedId, let k = l.keys.first(where: { $0.id == id }) else { return }
         var c = k
         c.id = UUID()
@@ -182,6 +309,12 @@ struct MainView: View {
     }
 
     private func deleteSelected() {
+        if !group.isEmpty, var l = editLayout {
+            l.keys.removeAll { group.contains($0.id) }
+            commit(l)
+            group = []
+            return
+        }
         guard var l = editLayout, let id = selectedId else { return }
         l.keys.removeAll { $0.id == id }
         commit(l)
@@ -338,13 +471,19 @@ struct LangMenu: View {
 // MARK: - Editor bar
 
 struct EditorBar: View {
+    enum Selection { case keys, all, none }
+
     let theme: KTheme
     let layoutName: String
     let hasSelection: Bool
+    var groupCount: Int = 0
+    var multiSelect = false
     var onAdd: (KeyAction) -> Void
     var onInspect: () -> Void
     var onDuplicate: () -> Void
     var onDelete: () -> Void
+    var onSelect: (Selection) -> Void = { _ in }
+    var onToggleMulti: () -> Void = {}
     var onDone: () -> Void
 
     var body: some View {
@@ -355,14 +494,30 @@ struct EditorBar: View {
             Menu {
                 Button { onAdd(.key(KC.space)) } label: { Label("Клавиша", systemImage: "square") }
                 Button { onAdd(.trackpad) } label: { Label("Тачпад", systemImage: "hand.point.up.left") }
+                Button { onAdd(.scrollWheel(WheelConfig())) } label: { Label("Колесо прокрутки", systemImage: "arrow.up.arrow.down") }
+                Button { onAdd(.scrollWheel(WheelConfig(mode: .volume))) } label: { Label("Колесо громкости", systemImage: "speaker.wave.2") }
                 Button { onAdd(.mouseLook) } label: { Label("Обзор мышью (игры)", systemImage: "scope") }
                 Button { onAdd(.stick(StickConfig())) } label: { Label("Стик WASD", systemImage: "l.joystick") }
                 Button { onAdd(.mouse(0)) } label: { Label("Кнопка мыши", systemImage: "computermouse") }
             } label: {
                 Label("Добавить", systemImage: "plus")
             }
+            Menu {
+                Button { onSelect(.keys) } label: { Label("Все клавиши (без тачпада)", systemImage: "keyboard") }
+                Button { onSelect(.all) } label: { Label("Все элементы", systemImage: "square.grid.3x3.fill") }
+                Button(action: onToggleMulti) {
+                    Label(multiSelect ? "Выключить выбор касанием" : "Выбирать касанием", systemImage: "hand.tap")
+                }
+                if groupCount > 0 {
+                    Button(role: .destructive) { onSelect(.none) } label: { Label("Снять выделение", systemImage: "xmark") }
+                }
+            } label: {
+                Label(groupCount > 0 ? "Выбрано: \(groupCount)" : "Выделить",
+                      systemImage: multiSelect ? "checkmark.circle.fill" : "checkmark.circle")
+            }
             Button(action: onInspect) {
-                Label(hasSelection ? "Свойства" : "Раскладка", systemImage: "info.circle")
+                Label(groupCount > 0 ? "Размер" : (hasSelection ? "Свойства" : "Раскладка"),
+                      systemImage: groupCount > 0 ? "arrow.up.left.and.arrow.down.right" : "info.circle")
             }
             Button(action: onDuplicate) { Image(systemName: "plus.square.on.square") }
                 .disabled(!hasSelection)
@@ -381,7 +536,8 @@ struct EditorBar: View {
         .frame(height: 46)
         .background(Color(uiColor: theme.bar))
         .overlay(alignment: .bottom) {
-            Text("Касание — свойства элемента, перетаскивание — переместить, угол — размер.")
+            Text(multiSelect ? "Касание — добавить или убрать из выделения, перетаскивание выделенного — двигать всю группу."
+                             : "Касание — свойства элемента, перетаскивание — переместить, угол — размер.")
                 .font(.system(size: 10))
                 .foregroundColor(Color(uiColor: theme.textDim))
                 .offset(y: 14)

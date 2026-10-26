@@ -22,6 +22,13 @@ final class KeyboardView: UIView {
     var onEditTap: ((UUID) -> Void)?
     /// Edit mode: the layout was stretched to the whole screen (visual positions unchanged).
     var onFilled: ((KBLayout) -> Void)?
+    /// Edit mode: elements selected together (moved / scaled as one).
+    private(set) var group: Set<UUID> = []
+    /// Edit mode: taps add / remove elements from the group instead of selecting one.
+    private var multiSelect = false
+    var onGroup: ((Set<UUID>) -> Void)?
+    /// Edit mode: a group member was tapped (open the group panel).
+    var onGroupTap: (() -> Void)?
     private var pendingFill = false
     private var originX: CGFloat = 0
     private var originY: CGFloat = 0
@@ -32,17 +39,20 @@ final class KeyboardView: UIView {
     private var ux: CGFloat = 1
     private var uy: CGFloat = 1
 
-    private struct EditOp {
+    fileprivate struct EditOp {
         let id: UUID
         let resize: Bool
         let start: CGPoint
         let orig: KeyDef
+        /// Group move: original positions of every member.
+        var groupOrig: [UUID: KeyDef] = [:]
     }
 
     private enum Binding {
         case key(UUID, Bool)   // element, pressed on the Fn layer
         case zone(UUID)
         case stick(UUID)
+        case wheel(UUID)
         case edit(EditOp)
         case ignored
     }
@@ -57,6 +67,7 @@ final class KeyboardView: UIView {
     private var toggled: Set<UUID> = []
     private var zones: [UUID: TrackpadController] = [:]
     private var sticks: [UUID: StickState] = [:]
+    private var wheels: [UUID: WheelController] = [:]
     private var legends = Legends.Resolved(primary: Legends.en, primaryLang: "EN", secondary: nil)
     private var observers: [NSObjectProtocol] = []
     private var built = false
@@ -103,7 +114,9 @@ final class KeyboardView: UIView {
     // MARK: configuration
 
     func apply(layout: KBLayout, theme: KTheme, gap: CGFloat, editing: Bool, selectedId: UUID?,
-               vpos: CGFloat, scale: CGFloat) {
+               vpos: CGFloat, scale: CGFloat, group: Set<UUID> = [], multiSelect: Bool = false) {
+        self.multiSelect = multiSelect
+        if group != self.group { self.group = group }
         if vpos != self.vpos || scale != self.scale {
             self.vpos = vpos
             self.scale = scale
@@ -144,6 +157,8 @@ final class KeyboardView: UIView {
     private func rebuild() {
         built = true
         zones.values.forEach { $0.cancelAll() }
+        wheels.values.forEach { $0.cancelAll() }
+        wheels.removeAll()
         views.values.forEach { $0.removeFromSuperview() }
         views.removeAll()
         zones.removeAll()
@@ -165,6 +180,10 @@ final class KeyboardView: UIView {
                 v = z
             case .stick:
                 v = StickView()
+            case .scrollWheel(let cfg):
+                let w = WheelView()
+                wheels[k.id] = WheelController(config: cfg, view: w)
+                v = w
             default:
                 let c = KeyCapView()
                 c.style = k.resolvedStyle()
@@ -190,13 +209,17 @@ final class KeyboardView: UIView {
                 z.applyColors()
             } else if let s = v as? StickView {
                 s.applyColors(text: k.label ?? "")
+            } else if let w = v as? WheelView {
+                w.applyColors()
             }
         }
     }
 
     private func updateSelection() {
         for (id, v) in views {
-            let sel = editing && id == selectedId
+            let member = editing && group.contains(id)
+            if v.groupMember != member { v.groupMember = member }
+            let sel = editing && (id == selectedId || member)
             if v.selectedForEdit != sel { v.selectedForEdit = sel }
         }
     }
@@ -470,6 +493,8 @@ final class KeyboardView: UIView {
                 (views[id] as? ZoneView)?.active = false
             case .stick(let id):
                 endStick(id)
+            case .wheel(let id):
+                wheels[id]?.cancelAll()
             default: break
             }
         }
@@ -610,6 +635,13 @@ final class KeyboardView: UIView {
             sticks[k.id] = StickState(center: center, held: [])
             bindings[key] = .stick(k.id)
             updateStick(k.id, p)
+        case .scrollWheel:
+            guard let w = wheels[k.id], !w.busy else {
+                bindings[key] = .ignored
+                return
+            }
+            w.began(t, in: self)
+            bindings[key] = .wheel(k.id)
         default:
             let fn = fnHeld > 0 && k.fn != nil
             bindings[key] = .key(k.id, fn)
@@ -632,6 +664,8 @@ final class KeyboardView: UIView {
             zones[id]?.moved(t, event: event, in: self)
         case .stick(let id):
             updateStick(id, p)
+        case .wheel(let id):
+            wheels[id]?.moved(t, event: event, in: self)
         case .edit(let op):
             applyEdit(op, p)
         case .ignored:
@@ -652,9 +686,23 @@ final class KeyboardView: UIView {
         case .stick(let id):
             endStick(id)
             refreshStates()
+        case .wheel(let id):
+            wheels[id]?.ended(t, cancelled: cancelled)
         case .edit(let op):
-            if let i = index[op.id], i < layout.keys.count, layout.keys[i] == op.orig,
-               hypot(t.location(in: self).x - op.start.x, t.location(in: self).y - op.start.y) < 8 {
+            let p = t.location(in: self)
+            let tapped = hypot(p.x - op.start.x, p.y - op.start.y) < 8
+            if tapped, multiSelect, !op.resize {
+                // Multi-select: a tap adds / removes the element (positions are untouched).
+                restore(op)
+                var g = group
+                if g.contains(op.id) { g.remove(op.id) } else { g.insert(op.id) }
+                group = g
+                updateSelection()
+                onGroup?(g)
+            } else if tapped, !op.groupOrig.isEmpty {
+                restore(op)
+                onGroupTap?()
+            } else if tapped, let i = index[op.id], i < layout.keys.count, layout.keys[i] == op.orig {
                 onEditTap?(op.id)
             } else {
                 onEdited?(layout)
@@ -673,27 +721,63 @@ final class KeyboardView: UIView {
             bindings[key] = .ignored
             return
         }
-        if let sel = selectedId, let f = views[sel]?.frame, hypot(p.x - f.maxX, p.y - f.maxY) < 32, let k = keyDef(sel) {
+        if group.isEmpty, let sel = selectedId, let f = views[sel]?.frame, hypot(p.x - f.maxX, p.y - f.maxY) < 32, let k = keyDef(sel) {
             bindings[key] = .edit(EditOp(id: sel, resize: true, start: p, orig: k))
             return
         }
-        if let k = layout.keys.reversed().first(where: { cells[$0.id]?.contains(p) == true }) {
-            selectedId = k.id
-            onSelect?(k.id)
-            updateSelection()
-            bindings[key] = .edit(EditOp(id: k.id, resize: false, start: p, orig: k))
-        } else {
+        guard let k = layout.keys.reversed().first(where: { cells[$0.id]?.contains(p) == true }) else {
+            if !multiSelect, !group.isEmpty {
+                group = []
+                onGroup?([])
+            }
             selectedId = nil
             onSelect?(nil)
             updateSelection()
             bindings[key] = .ignored
+            return
         }
+        if group.contains(k.id) {
+            // Drag any member to move the whole group.
+            var origs: [UUID: KeyDef] = [:]
+            for id in group { if let d = keyDef(id) { origs[id] = d } }
+            bindings[key] = .edit(EditOp(id: k.id, resize: false, start: p, orig: k, groupOrig: origs))
+            return
+        }
+        if multiSelect {
+            bindings[key] = .edit(EditOp(id: k.id, resize: false, start: p, orig: k))
+            return
+        }
+        if !group.isEmpty {
+            group = []
+            onGroup?([])
+        }
+        selectedId = k.id
+        onSelect?(k.id)
+        updateSelection()
+        bindings[key] = .edit(EditOp(id: k.id, resize: false, start: p, orig: k))
+    }
+
+    /// Puts the elements of an edit operation back where they started (a tap must not move anything).
+    private func restore(_ op: EditOp) {
+        var changed = false
+        let origs = op.groupOrig.isEmpty ? [op.id: op.orig] : op.groupOrig
+        for (id, o) in origs {
+            if let i = index[id], i < layout.keys.count, layout.keys[i] != o {
+                layout.keys[i] = o
+                changed = true
+            }
+        }
+        if changed { setNeedsLayout() }
     }
 
     private func applyEdit(_ op: EditOp, _ p: CGPoint) {
         guard let i = index[op.id], i < layout.keys.count else { return }
         let dx = Double((p.x - op.start.x) / ux)
         let dy = Double((p.y - op.start.y) / uy)
+        if !op.groupOrig.isEmpty {
+            applyGroupMove(op, dx, dy)
+            return
+        }
         // Magnet: edges stick to the edges of other elements and of the screen when close.
         let others = layout.keys.filter { $0.id != op.id }
         var xs: [Double] = [0, layout.cols]
@@ -731,6 +815,45 @@ final class KeyboardView: UIView {
         }
         if k != layout.keys[i] {
             layout.keys[i] = k
+            setNeedsLayout()
+            layoutIfNeeded()
+        }
+    }
+}
+
+extension KeyboardView {
+    /// Moves a group as one block: its bounding box sticks to other elements and screen edges.
+    fileprivate func applyGroupMove(_ op: EditOp, _ dx: Double, _ dy: Double) {
+        let origs = Array(op.groupOrig.values)
+        guard let minX = origs.map({ $0.x }).min(), let minY = origs.map({ $0.y }).min(),
+              let maxX = origs.map({ $0.x + $0.w }).max(), let maxY = origs.map({ $0.y + $0.h }).max() else { return }
+        let bw = maxX - minX, bh = maxY - minY
+        var xs: [Double] = [0, layout.cols]
+        var ys: [Double] = [0, layout.rows]
+        for o in layout.keys where op.groupOrig[o.id] == nil {
+            xs.append(o.x); xs.append(o.x + o.w)
+            ys.append(o.y); ys.append(o.y + o.h)
+        }
+        func magnet(_ v: Double, _ size: Double, _ cands: [Double]) -> Double {
+            var best = v, dist = 0.12
+            for c in cands {
+                if abs(v - c) < dist { dist = abs(v - c); best = c }
+                if abs(v + size - c) < dist { dist = abs(v + size - c); best = c - size }
+            }
+            return best
+        }
+        let nx = min(max(0, magnet(minX + dx, bw, xs)), max(0, layout.cols - bw))
+        let ny = min(max(0, magnet(minY + dy, bh, ys)), max(0, layout.rows - bh))
+        let sx = nx - minX, sy = ny - minY
+        var changed = false
+        for (id, o) in op.groupOrig {
+            guard let i = index[id], i < layout.keys.count else { continue }
+            var k = o
+            k.x = ((o.x + sx) * 100).rounded() / 100
+            k.y = ((o.y + sy) * 100).rounded() / 100
+            if layout.keys[i] != k { layout.keys[i] = k; changed = true }
+        }
+        if changed {
             setNeedsLayout()
             layoutIfNeeded()
         }
