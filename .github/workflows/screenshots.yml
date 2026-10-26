@@ -43,7 +43,7 @@ jobs:
           mkdir -p shots
           shoot() {
             xcrun simctl terminate "$DEVICE" com.localkeys.app 2>/dev/null || true
-            SIMCTL_CHILD_LK_SCREENSHOT=1 SIMCTL_CHILD_LK_LANDSCAPE=1 SIMCTL_CHILD_LK_LAYOUT="$1" SIMCTL_CHILD_LK_THEME="${3:-midnight}" SIMCTL_CHILD_LK_VPOS="${4:-}" SIMCTL_CHILD_LK_EDIT="${5:-}" SIMCTL_CHILD_LK_GROUP="${6:-}" \
+            SIMCTL_CHILD_LK_SCREENSHOT=1 SIMCTL_CHILD_LK_LANDSCAPE=1 SIMCTL_CHILD_LK_LAYOUT="$1" SIMCTL_CHILD_LK_THEME="${3:-midnight}" SIMCTL_CHILD_LK_VPOS="${4:-}" SIMCTL_CHILD_LK_EDIT="${5:-}" SIMCTL_CHILD_LK_GROUP="${6:-}" SIMCTL_CHILD_LK_SHEET="${7:-}" \
               xcrun simctl launch "$DEVICE" com.localkeys.app
             sleep 6
             xcrun simctl io "$DEVICE" screenshot "shots/$2.png"
@@ -61,6 +61,8 @@ jobs:
           shoot builtin.stick 9b-stick-edit midnight 1 1
           shoot builtin.remote 7b-remote
           shoot builtin.laptop 9c-laptop-group midnight "" 1 keys
+          shoot builtin.laptop 10-settings midnight "" "" "" settings
+          shoot builtin.laptop 11-laptop-light light
           ls -la shots
 
       - uses: actions/upload-artifact@v4
