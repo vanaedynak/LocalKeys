@@ -274,6 +274,9 @@ struct MainView: View {
         case .trackpad, .mouseLook: w = 5; h = 3
         case .stick: w = 3.5; h = 3.5
         case .scrollWheel: w = 1.2; h = 3
+        case .flightStick: w = 5; h = 5
+        case .axis: w = 1.6; h = 5
+        case .joyButton: w = 2; h = 1.4
         default: break
         }
         w = min(w, l.cols)
@@ -502,6 +505,12 @@ struct EditorBar: View {
                 Button { onAdd(.mouseLook) } label: { Label("Обзор мышью (игры)", systemImage: "scope") }
                 Button { onAdd(.stick(StickConfig())) } label: { Label("Стик WASD", systemImage: "l.joystick") }
                 Button { onAdd(.mouse(0)) } label: { Label("Кнопка мыши", systemImage: "computermouse") }
+                Section("Джойстик (DCS и другие игры)") {
+                    Button { onAdd(.flightStick(FlightStickConfig())) } label: { Label("Ручка", systemImage: "airplane") }
+                    Button { onAdd(.axis(AxisConfig())) } label: { Label("РУД (ось)", systemImage: "slider.vertical.3") }
+                    Button { onAdd(.axis(AxisConfig(axis: .rz, spring: true))) } label: { Label("Педали (ось с возвратом)", systemImage: "slider.horizontal.3") }
+                    Button { onAdd(.joyButton(1)) } label: { Label("Кнопка джойстика", systemImage: "circle.circle") }
+                }
             } label: {
                 Label("Добавить", systemImage: "plus")
             }

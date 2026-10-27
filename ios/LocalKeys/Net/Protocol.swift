@@ -16,6 +16,7 @@ enum MsgType: UInt8 {
     case mouseMove = 0x20
     case mouseButton = 0x21
     case scroll = 0x22
+    case joystick = 0x23
     case command = 0x30
     case pcState = 0x40
 }
@@ -50,6 +51,16 @@ enum Proto {
     static func mouseButton(_ b: UInt8, _ down: Bool) -> Data { frame(.mouseButton, [b, down ? 1 : 0]) }
     static func scroll(_ v: Int, _ h: Int) -> Data { frame(.scroll, i16(v) + i16(h)) }
     static func text(_ s: String) -> Data { frame(.text, Array(s.utf8.prefix(60000))) }
+
+    /// Virtual joystick: [u8 n] n * i16 axis (-32767...32767) [u32 buttons] [u8 mask of axes that hold
+    /// their position (throttle) — the PC centers the others if the iPad goes silent].
+    static func joystick(axes: [Int], buttons: UInt32, hold: UInt8) -> Data {
+        var p: [UInt8] = [UInt8(axes.count)]
+        for a in axes { p += i16(a) }
+        p += [UInt8(buttons >> 24 & 0xFF), UInt8(buttons >> 16 & 0xFF), UInt8(buttons >> 8 & 0xFF), UInt8(buttons & 0xFF)]
+        p.append(hold)
+        return frame(.joystick, p)
+    }
 
     static func stateSync(keys: [UInt16], buttons: UInt8) -> Data {
         let list = Array(keys.prefix(255))
@@ -117,4 +128,6 @@ struct PcState: Codable, Equatable {
     var elevated: Bool?
     var addresses: [String]?
     var port: Int?
+    /// Virtual joystick on the PC: ok | missing (vJoy not installed) | busy | off
+    var joystick: String?
 }

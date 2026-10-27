@@ -12,6 +12,8 @@ internal sealed class MainForm : Form
     private readonly Label _usb = new();
     private readonly LinkLabel _usbFix = new();
     private readonly Label _android = new();
+    private readonly Label _joy = new();
+    private readonly LinkLabel _joyGet = new();
     private readonly LinkLabel _itunes = new();
     private readonly ListView _connected = new();
     private readonly ListView _trusted = new();
@@ -82,6 +84,15 @@ internal sealed class MainForm : Form
         _android.AutoSize = true;
         _android.MaximumSize = new Size(500, 0);
         flow.Controls.Add(Card("Android по кабелю", _android));
+
+        _joy.AutoSize = true;
+        _joy.MaximumSize = new Size(500, 0);
+        _joyGet.AutoSize = true;
+        _joyGet.LinkColor = Theme.Accent;
+        _joyGet.ActiveLinkColor = Theme.Text;
+        _joyGet.Text = "Скачать vJoy (бесплатно)";
+        _joyGet.LinkClicked += (_, _) => Open("https://github.com/BrunnerInnovation/vJoy/releases");
+        flow.Controls.Add(Card("Джойстик для игр (DCS и др.)", _joy, _joyGet));
 
         // Connected
         SetupList(_connected, ("Устройство", 170), ("Канал", 80), ("Адрес", 130), ("С", 110));
@@ -285,6 +296,17 @@ internal sealed class MainForm : Form
         else if (adb.Unauthorized > 0) _android.Text = "Телефон подключён: разрешите отладку по USB на его экране (отметьте «Всегда разрешать»).";
         else _android.Text = "Включите на телефоне «Отладку по USB» (режим разработчика) и подключите кабель.";
         _android.ForeColor = adb?.Unauthorized > 0 ? Theme.Warn : Theme.Text;
+
+        var joy = _core.Joystick;
+        _joy.Text = joy.Status switch
+        {
+            "ok" => $"Виртуальный джойстик vJoy готов ({joy.ButtonCount} кнопок). В игре он называется «vJoy Device»: назначьте оси и кнопки в настройках управления.",
+            "busy" => "vJoy занят другой программой (например, другим эмулятором джойстика). Закройте её.",
+            "error" => "vJoy установлен, но не отвечает. Перезагрузите ПК после установки драйвера.",
+            _ => "Для раскладки «DCS / джойстик» на iPad установите бесплатный драйвер vJoy (один раз, потом перезагрузите ПК).",
+        };
+        _joy.ForeColor = joy.Status == "ok" ? Theme.Text : Theme.Warn;
+        _joyGet.Visible = joy.Status != "ok";
 
         var connSig = string.Join("|", authed.Select(s => s.GetHashCode()));
         if (connSig != _lastConnectedSig)

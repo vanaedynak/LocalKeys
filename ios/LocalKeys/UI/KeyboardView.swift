@@ -53,6 +53,9 @@ final class KeyboardView: UIView {
         case zone(UUID)
         case stick(UUID)
         case wheel(UUID)
+        case flight(UUID)
+        /// Axis slider: element, touch start, value at the start.
+        case axis(UUID, CGPoint, Double)
         case edit(EditOp)
         case ignored
     }
@@ -68,6 +71,14 @@ final class KeyboardView: UIView {
     private var zones: [UUID: TrackpadController] = [:]
     private var sticks: [UUID: StickState] = [:]
     private var wheels: [UUID: WheelController] = [:]
+    // Joystick elements.
+    private var axisValues: [UUID: Double] = [:]
+    private var flightTouch: Set<UUID> = []
+    private var flightTapStart: [UUID: CFTimeInterval] = [:]
+    private var lastFlightTap: [UUID: CFTimeInterval] = [:]
+    private var tiltValue: CGPoint = .zero
+    private var tiltOn = false
+    private let joy = JoystickController.shared
     private var legends = Legends.Resolved(primary: Legends.en, primaryLang: "EN", secondary: nil)
     private var observers: [NSObjectProtocol] = []
     private var built = false
@@ -100,6 +111,10 @@ final class KeyboardView: UIView {
         })
         observers.append(nc.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.releaseAllTouches()
+            self?.updateTilt(active: false)
+        })
+        observers.append(nc.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.updateTilt()
         })
     }
 
@@ -150,6 +165,7 @@ final class KeyboardView: UIView {
             legendSig = sig
             updateLegends()
         }
+        updateTilt()
     }
 
     private var legendSig = ""
@@ -184,6 +200,19 @@ final class KeyboardView: UIView {
                 let w = WheelView()
                 wheels[k.id] = WheelController(config: cfg, view: w)
                 v = w
+            case .flightStick:
+                let f = FlightStickView()
+                f.caption = k.label ?? ""
+                v = f
+            case .axis(let cfg):
+                let a = AxisView()
+                a.spring = cfg.spring
+                a.caption = k.label ?? k.defaultCap()
+                // Throttle starts at idle; a rudder in the middle.
+                let start = axisValues[k.id] ?? (cfg.spring ? 0 : -1)
+                axisValues[k.id] = start
+                a.setValue(start)
+                v = a
             default:
                 let c = KeyCapView()
                 c.style = k.resolvedStyle()
@@ -197,6 +226,8 @@ final class KeyboardView: UIView {
         refreshStates()
         updateSelection()
         setNeedsLayout()
+        tiltOn = false
+        updateTilt()
     }
 
     private func restyle() {
@@ -211,6 +242,10 @@ final class KeyboardView: UIView {
                 s.applyColors(text: k.label ?? "")
             } else if let w = v as? WheelView {
                 w.applyColors()
+            } else if let f = v as? FlightStickView {
+                f.applyColors()
+            } else if let a = v as? AxisView {
+                a.applyColors()
             }
         }
     }
@@ -333,6 +368,9 @@ final class KeyboardView: UIView {
         if fnHeld > 0, k.fn != nil {
             return legend(for: effective(k, true))
         }
+        if case .joyButton(let n) = k.action {
+            return KeyLegend(main: k.label ?? "Кнопка", top: "\(n)")
+        }
         if let l = k.label, !l.isEmpty { return KeyLegend(main: l) }
         guard case .key(let c) = k.action else { return KeyLegend(main: k.defaultCap()) }
         if c == KC.space {
@@ -352,7 +390,16 @@ final class KeyboardView: UIView {
     func updateLegends(resolve: Bool = true) {
         if resolve { legends = Legends.resolve(settings: settings, pc: ConnectionManager.shared.pcState) }
         let pc = ConnectionManager.shared.pcState
+        let joyProblem: String? = {
+            switch pc?.joystick {
+            case "missing": return "На ПК не установлен vJoy — откройте LocalKeys на ПК, там ссылка"
+            case "busy": return "Виртуальный джойстик на ПК занят другой программой"
+            case "error": return "Виртуальный джойстик на ПК не отвечает"
+            default: return pc == nil ? nil : (pc?.joystick == nil ? "Обновите LocalKeys на ПК до 1.7" : nil)
+            }
+        }()
         for k in layout.keys {
+            if let f = views[k.id] as? FlightStickView { f.problem = joyProblem }
             guard let c = views[k.id] as? KeyCapView else { continue }
             let l = legend(for: k)
             c.setLegend(main: l.main, top: l.top, alt: l.alt, altTop: l.altTop,
@@ -397,6 +444,7 @@ final class KeyboardView: UIView {
         case .key(let c): input.press(c)
         case .combo(let cs): cs.forEach { input.press($0) }
         case .mouse(let b): input.mouseDown(b)
+        case .joyButton(let n): joy.press(n)
         default: break
         }
     }
@@ -406,6 +454,7 @@ final class KeyboardView: UIView {
         case .key(let c): input.release(c)
         case .combo(let cs): cs.reversed().forEach { input.release($0) }
         case .mouse(let b): input.mouseUp(b)
+        case .joyButton(let n): joy.release(n)
         default: break
         }
     }
@@ -429,6 +478,7 @@ final class KeyboardView: UIView {
         case .combo(let cs): cs.forEach { input.press($0) }
         case .mouse(let b): input.mouseDown(b)
         case .wheel(let d): input.scroll(vertical: Double(d) * 120, horizontal: 0)
+        case .joyButton(let n): joy.press(n)
         case .text(let s): input.text(s)
         case .special(let sp):
             switch sp {
@@ -439,6 +489,11 @@ final class KeyboardView: UIView {
             case .releaseAll:
                 releaseAllTouches()
                 input.releaseAll()
+            case .joyRecenter:
+                TiltController.shared.recenter()
+            case .joyTiltToggle:
+                settings.stickTilt.toggle()
+                updateTilt()
             default: break
             }
         default: break
@@ -453,6 +508,7 @@ final class KeyboardView: UIView {
             case .key(let c): input.touchUp(c)
             case .combo(let cs): cs.reversed().forEach { input.release($0) }
             case .mouse(let b): input.mouseUp(b)
+            case .joyButton(let n): joy.release(n)
             case .special(let sp):
                 if sp == .textPanel || sp == .nextLayout { onSpecial?(sp) }
                 if sp == .fn {
@@ -482,6 +538,10 @@ final class KeyboardView: UIView {
                 endStick(id)
             case .wheel(let id):
                 wheels[id]?.cancelAll()
+            case .flight(let id):
+                endFlight(id)
+            case .axis(let id, _, _):
+                endAxis(id)
             default: break
             }
         }
@@ -494,6 +554,78 @@ final class KeyboardView: UIView {
         toggled.removeAll()
         pressCount.removeAll()
         refreshStates()
+    }
+
+    // MARK: joystick
+
+    /// Tilt drives the flight sticks while the layout has one, the setting is on and nothing is edited.
+    private func updateTilt(active: Bool = true) {
+        let hasStick = layout.keys.contains { if case .flightStick = $0.action { return true } else { return false } }
+        let want = active && hasStick && settings.stickTilt && !editing && TiltController.shared.available
+            && UIApplication.shared.applicationState != .background
+        for (_, v) in views { (v as? FlightStickView)?.tilt = want }
+        guard want != tiltOn else { return }
+        tiltOn = want
+        let tc = TiltController.shared
+        if want {
+            tc.onTilt = { [weak self] v in self?.applyTilt(v) }
+            tc.start()
+        } else {
+            tc.stop()
+            tc.onTilt = nil
+            applyTilt(.zero)
+        }
+    }
+
+    private func applyTilt(_ v: CGPoint) {
+        tiltValue = v
+        for k in layout.keys {
+            guard case .flightStick = k.action, !flightTouch.contains(k.id) else { continue }
+            setFlight(k, v)
+        }
+    }
+
+    private func updateFlight(_ id: UUID, _ p: CGPoint) {
+        guard let k = keyDef(id), let cell = cells[id] else { return }
+        let r = max(min(cell.width, cell.height) * 0.42 - gap, 10)
+        let v = CGPoint(x: max(-1, min(1, (p.x - cell.midX) / r)), y: max(-1, min(1, (p.y - cell.midY) / r)))
+        setFlight(k, v)
+    }
+
+    private func setFlight(_ k: KeyDef, _ v: CGPoint) {
+        guard case .flightStick(let cfg) = k.action else { return }
+        (views[k.id] as? FlightStickView)?.setValue(v)
+        joy.setAxis(cfg.xAxis, Double(v.x), hold: false)
+        joy.setAxis(cfg.yAxis, Double(v.y) * (cfg.invertY == true ? -1 : 1), hold: false)
+    }
+
+    /// Finger lifted: back to the tilt position (or the centre without tilt).
+    private func endFlight(_ id: UUID) {
+        flightTouch.remove(id)
+        flightTapStart[id] = nil
+        (views[id] as? FlightStickView)?.touching = false
+        if let k = keyDef(id) { setFlight(k, tiltOn ? tiltValue : .zero) }
+    }
+
+    private func moveAxis(_ id: UUID, _ start: CGPoint, _ v0: Double, _ p: CGPoint) {
+        guard let k = keyDef(id), case .axis(let cfg) = k.action, let av = views[id] as? AxisView else { return }
+        let len = max(av.length, 20)
+        let d = av.horizontal ? (p.x - start.x) / len : (start.y - p.y) / len
+        // Throttle: relative drag, the whole travel = the slider length. Rudder: from the touch point.
+        let v = cfg.spring ? Double(d * 2.2) : v0 + Double(d * 2)
+        setAxisValue(k, cfg, max(-1, min(1, v)))
+    }
+
+    private func endAxis(_ id: UUID) {
+        (views[id] as? AxisView)?.touching = false
+        guard let k = keyDef(id), case .axis(let cfg) = k.action, cfg.spring else { return }
+        setAxisValue(k, cfg, 0)
+    }
+
+    private func setAxisValue(_ k: KeyDef, _ cfg: AxisConfig, _ v: Double) {
+        axisValues[k.id] = v
+        (views[k.id] as? AxisView)?.setValue(v)
+        joy.setAxis(cfg.axis, v * (cfg.invert == true ? -1 : 1), hold: !cfg.spring)
     }
 
     // MARK: stick
@@ -629,6 +761,29 @@ final class KeyboardView: UIView {
             }
             w.began(t, in: self)
             bindings[key] = .wheel(k.id)
+        case .flightStick:
+            guard !flightTouch.contains(k.id) else {
+                bindings[key] = .ignored
+                return
+            }
+            flightTouch.insert(k.id)
+            let now = CACurrentMediaTime()
+            // Double tap while flying by tilt: the current hold becomes the centre.
+            if tiltOn, let last = lastFlightTap[k.id], now - last < 0.35 {
+                TiltController.shared.recenter()
+                lastFlightTap[k.id] = nil
+            }
+            flightTapStart[k.id] = now
+            (views[k.id] as? FlightStickView)?.touching = true
+            bindings[key] = .flight(k.id)
+            updateFlight(k.id, p)
+        case .axis:
+            if bindings.values.contains(where: { if case .axis(let id, _, _) = $0 { return id == k.id } else { return false } }) {
+                bindings[key] = .ignored
+                return
+            }
+            (views[k.id] as? AxisView)?.touching = true
+            bindings[key] = .axis(k.id, p, axisValues[k.id] ?? 0)
         default:
             let fn = fnHeld > 0 && k.fn != nil
             bindings[key] = .key(k.id, fn)
@@ -653,6 +808,10 @@ final class KeyboardView: UIView {
             updateStick(id, p)
         case .wheel(let id):
             wheels[id]?.moved(t, event: event, in: self)
+        case .flight(let id):
+            updateFlight(id, p)
+        case .axis(let id, let start, let v0):
+            moveAxis(id, start, v0, p)
         case .edit(let op):
             applyEdit(op, p)
         case .ignored:
@@ -675,6 +834,11 @@ final class KeyboardView: UIView {
             refreshStates()
         case .wheel(let id):
             wheels[id]?.ended(t, cancelled: cancelled)
+        case .flight(let id):
+            if let t0 = flightTapStart[id], CACurrentMediaTime() - t0 < 0.25 { lastFlightTap[id] = CACurrentMediaTime() }
+            endFlight(id)
+        case .axis(let id, _, _):
+            endAxis(id)
         case .edit(let op):
             let p = t.location(in: self)
             let tapped = hypot(p.x - op.start.x, p.y - op.start.y) < 8

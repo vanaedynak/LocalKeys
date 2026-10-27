@@ -6,6 +6,8 @@ enum SpecialAction: String, Codable, CaseIterable, Identifiable {
     case nextLayout
     case releaseAll
     case fn
+    case joyRecenter
+    case joyTiltToggle
 
     var id: String { rawValue }
     var title: String {
@@ -15,6 +17,8 @@ enum SpecialAction: String, Codable, CaseIterable, Identifiable {
         case .nextLayout: return "Следующая раскладка"
         case .releaseAll: return "Отпустить всё"
         case .fn: return "Fn (второй слой)"
+        case .joyRecenter: return "Джойстик: центр наклона"
+        case .joyTiltToggle: return "Джойстик: наклон / палец"
         }
     }
     var cap: String {
@@ -24,6 +28,8 @@ enum SpecialAction: String, Codable, CaseIterable, Identifiable {
         case .nextLayout: return "sf:rectangle.2.swap"
         case .releaseAll: return "sf:hand.raised.slash"
         case .fn: return "Fn"
+        case .joyRecenter: return "sf:scope|Центр"
+        case .joyTiltToggle: return "sf:gyroscope|Наклон"
         }
     }
 }
@@ -89,6 +95,39 @@ struct WheelConfig: Codable, Hashable {
     var invert: Bool? = nil
 }
 
+/// Axes of the virtual joystick on the PC (vJoy / DirectInput), in frame order.
+enum JoyAxis: Int, Codable, CaseIterable, Identifiable {
+    case x = 0, y, z, rx, ry, rz, slider0, slider1
+
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .x: return "X (крен)"
+        case .y: return "Y (тангаж)"
+        case .z: return "Z (РУД)"
+        case .rx: return "Rx"
+        case .ry: return "Ry"
+        case .rz: return "Rz (педали)"
+        case .slider0: return "Ползунок 1"
+        case .slider1: return "Ползунок 2"
+        }
+    }
+}
+
+/// A flight stick: two joystick axes, driven by tilting the iPad or by a finger.
+struct FlightStickConfig: Codable, Hashable {
+    var xAxis: JoyAxis = .x
+    var yAxis: JoyAxis = .y
+    var invertY: Bool? = nil
+}
+
+/// One joystick axis as a slider: throttle (stays where left) or rudder (springs back to the middle).
+struct AxisConfig: Codable, Hashable {
+    var axis: JoyAxis = .z
+    var spring: Bool = false
+    var invert: Bool? = nil
+}
+
 enum KeyAction: Codable, Hashable {
     case key(UInt16)
     case combo([UInt16])
@@ -101,10 +140,14 @@ enum KeyAction: Codable, Hashable {
     case mouseLook
     case stick(StickConfig)
     case scrollWheel(WheelConfig)
+    case flightStick(FlightStickConfig)
+    case axis(AxisConfig)
+    /// Joystick button 1...32.
+    case joyButton(UInt8)
 
     var isZone: Bool {
         switch self {
-        case .trackpad, .mouseLook, .stick, .scrollWheel: return true
+        case .trackpad, .mouseLook, .stick, .scrollWheel, .flightStick, .axis: return true
         default: return false
         }
     }
@@ -181,6 +224,9 @@ extension KeyDef {
         case .mouseLook: return "Обзор"
         case .stick: return "Стик"
         case .scrollWheel(let c): return c.mode.title
+        case .flightStick: return "Ручка"
+        case .axis(let c): return c.spring ? "Педали" : "РУД"
+        case .joyButton(let n): return "Кнопка \(n)"
         }
     }
 }

@@ -36,6 +36,14 @@ final class AppSettings: ObservableObject {
     @Published var lookSpeed: Double { didSet { d.set(lookSpeed, forKey: "lookSpeed") } }
     @Published var invertLookY: Bool { didSet { d.set(invertLookY, forKey: "invertLookY") } }
 
+    // Joystick
+    /// The flight stick follows the iPad's tilt (otherwise only a finger moves it).
+    @Published var stickTilt: Bool { didSet { d.set(stickTilt, forKey: "stickTilt") } }
+    /// Tilt angle (degrees) for a full deflection.
+    @Published var tiltRange: Double { didSet { d.set(tiltRange, forKey: "tiltRange") } }
+    /// Tilt dead zone around the centre (fraction of full deflection).
+    @Published var tiltDeadzone: Double { didSet { d.set(tiltDeadzone, forKey: "tiltDeadzone") } }
+
     // Connection
     @Published var wifiEnabled: Bool { didSet { d.set(wifiEnabled, forKey: "wifiEnabled") } }
     @Published var usbEnabled: Bool { didSet { d.set(usbEnabled, forKey: "usbEnabled") } }
@@ -104,6 +112,9 @@ final class AppSettings: ObservableObject {
         tapToClick = v("tapToClick", true)
         lookSpeed = v("lookSpeed", 1.0)
         invertLookY = v("invertLookY", false)
+        stickTilt = v("stickTilt", true)
+        tiltRange = v("tiltRange", 25.0)
+        tiltDeadzone = v("tiltDeadzone", 0.03)
         wifiEnabled = v("wifiEnabled", true)
         usbEnabled = v("usbEnabled", true)
         manualHost = v("manualHost", "")

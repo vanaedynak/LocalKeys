@@ -69,6 +69,16 @@ struct SettingsView: View {
                     Toggle("Инвертировать обзор по вертикали", isOn: $s.invertLookY)
                 }
 
+                Section {
+                    Toggle("Ручка наклоном iPad", isOn: $s.stickTilt)
+                    slider("Наклон для полного отклонения", value: $s.tiltRange, range: 10...45, format: "%.0f°")
+                    slider("Мёртвая зона наклона", value: $s.tiltDeadzone, range: 0...0.2, format: "%.2f")
+                } header: {
+                    Text("Джойстик (DCS и другие игры)")
+                } footer: {
+                    Text("Раскладка «DCS / джойстик» — это настоящий джойстик для Windows: на ПК нужен бесплатный драйвер vJoy. Двойное касание по ручке — центр наклона.")
+                }
+
                 Section("Внешний вид") {
                     Picker("Тема", selection: $s.themeId) {
                         ForEach(KTheme.all, id: \.id) { t in Text(t.name).tag(t.id) }

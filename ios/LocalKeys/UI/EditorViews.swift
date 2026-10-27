@@ -43,6 +43,8 @@ struct KeyInspectorView: View {
     var onDelete: () -> Void
     @Environment(\.dismiss) private var dismiss
 
+    @ObservedObject private var settings = AppSettings.shared
+
     enum Kind: String, CaseIterable, Identifiable {
         case key = "Клавиша"
         case combo = "Сочетание"
@@ -55,6 +57,9 @@ struct KeyInspectorView: View {
         case trackpad = "Тачпад"
         case look = "Обзор мышью"
         case stick = "Стик"
+        case flightStick = "Ручка джойстика"
+        case axis = "Ось джойстика (РУД, педали)"
+        case joyButton = "Кнопка джойстика"
         var id: String { rawValue }
     }
 
@@ -72,6 +77,9 @@ struct KeyInspectorView: View {
             case .mouseLook: return .look
             case .stick: return .stick
             case .scrollWheel: return .wheelStrip
+            case .flightStick: return .flightStick
+            case .axis: return .axis
+            case .joyButton: return .joyButton
             }
         }, set: { k in
             switch k {
@@ -86,6 +94,9 @@ struct KeyInspectorView: View {
             case .look: key.action = .mouseLook
             case .stick: key.action = .stick(StickConfig())
             case .wheelStrip: key.action = .scrollWheel(WheelConfig())
+            case .flightStick: key.action = .flightStick(FlightStickConfig())
+            case .axis: key.action = .axis(AxisConfig())
+            case .joyButton: key.action = .joyButton(1)
             }
         })
     }
@@ -219,6 +230,57 @@ struct KeyInspectorView: View {
             stickEditor(cfg)
         case .scrollWheel(let cfg):
             wheelEditor(cfg)
+        case .flightStick(let cfg):
+            flightEditor(cfg)
+        case .axis(let cfg):
+            axisEditor(cfg)
+        case .joyButton(let n):
+            Stepper(value: Binding(get: { Int(n) }, set: { key.action = .joyButton(UInt8($0)) }), in: 1...32) {
+                HStack { Text("Номер кнопки"); Spacer(); Text("\(n)").monospacedDigit().foregroundColor(.secondary) }
+            }
+            Text("В DCS: Настройки → Управление → выберите строку команды и нажмите эту кнопку на iPad.")
+                .font(.footnote).foregroundColor(.secondary)
+        }
+    }
+
+    private func flightEditor(_ cfg: FlightStickConfig) -> some View {
+        func update(_ f: (inout FlightStickConfig) -> Void) {
+            var c = cfg
+            f(&c)
+            key.action = .flightStick(c)
+        }
+        return Group {
+            Picker("Влево–вправо", selection: Binding(get: { cfg.xAxis }, set: { v in update { $0.xAxis = v } })) {
+                ForEach(JoyAxis.allCases) { Text($0.title).tag($0) }
+            }
+            Picker("Вперёд–назад", selection: Binding(get: { cfg.yAxis }, set: { v in update { $0.yAxis = v } })) {
+                ForEach(JoyAxis.allCases) { Text($0.title).tag($0) }
+            }
+            Toggle("Инвертировать вперёд–назад", isOn: Binding(get: { cfg.invertY == true }, set: { v in update { $0.invertY = v } }))
+            Toggle("Управлять наклоном iPad", isOn: $settings.stickTilt)
+            Text("Наклон: правый край вниз — крен вправо, верхний край от себя — ручка от себя. Пока палец на ручке, она слушается пальца. Двойное касание по ручке — текущее положение iPad становится центром.")
+                .font(.footnote).foregroundColor(.secondary)
+        }
+    }
+
+    private func axisEditor(_ cfg: AxisConfig) -> some View {
+        func update(_ f: (inout AxisConfig) -> Void) {
+            var c = cfg
+            f(&c)
+            key.action = .axis(c)
+        }
+        return Group {
+            Picker("Ось", selection: Binding(get: { cfg.axis }, set: { v in update { $0.axis = v } })) {
+                ForEach(JoyAxis.allCases) { Text($0.title).tag($0) }
+            }
+            Toggle(isOn: Binding(get: { cfg.spring }, set: { v in update { $0.spring = v } })) {
+                VStack(alignment: .leading) {
+                    Text("Возврат в центр")
+                    Text("Для педалей. Выключено — ось остаётся там, где отпустили (РУД).")
+                        .font(.caption).foregroundColor(.secondary)
+                }
+            }
+            Toggle("Инвертировать", isOn: Binding(get: { cfg.invert == true }, set: { v in update { $0.invert = v } }))
         }
     }
 

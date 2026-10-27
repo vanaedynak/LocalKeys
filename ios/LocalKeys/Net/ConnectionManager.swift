@@ -438,6 +438,7 @@ final class ConnectionManager: ObservableObject {
                 // Transport switch (or first connect): make the PC mirror exactly what is held now.
                 // The PC tracks held keys per iPad (not per link), so this is all it takes.
                 a.send(InputController.shared.stateSyncFrame())
+                JoystickController.shared.resend()
                 if let st = pcState, a.serverHello?.pcName != st.pcName { pcState = nil }
                 sendCommand("requestState")
             }

@@ -39,7 +39,35 @@ private struct LB {
 }
 
 enum BuiltinLayouts {
-    static var all: [KBLayout] { [laptop, full, darkProject68, gaming, gamingStick, trackpad, remote, numpad, shortcuts] }
+    static var all: [KBLayout] { [laptop, full, darkProject68, gaming, gamingStick, dcs, trackpad, remote, numpad, shortcuts] }
+
+    /// Flight simulators (DCS World...): a virtual joystick on the PC. Stick by tilting the iPad
+    /// (or a finger), throttle on the left, rudder at the bottom, 15 buttons to bind in the game.
+    static var dcs: KBLayout {
+        var b = LB()
+        b.put(.axis(AxisConfig(axis: .z)), 0, 0, 1.8, 7.5, "РУД")
+        b.row(0, h: 1.1, x: 2.0)
+        b.k(KC.esc, 1.5)
+        b.a(.special(.joyRecenter), 1.5)
+        b.a(.special(.joyTiltToggle), 1.5)
+        b.k(KC.pause, 1.5)
+        let names = ["Огонь", "Пуск", "Захват", "Шасси", "Закрылки", "Возд. тормоз",
+                     "Тормоза", "Ловушки", "Фонарь", "Автопилот", "Обзор", "Связь"]
+        for r in 0..<4 {
+            b.row(1.25 + Double(r) * 1.55, h: 1.45, x: 2.0)
+            for c in 0..<3 {
+                let n = r * 3 + c
+                b.a(.joyButton(UInt8(n + 1)), 2, names[n], n < 2 ? .danger : .auto)
+            }
+        }
+        b.put(.flightStick(FlightStickConfig()), 8.2, 0, 7.8, 7.5)
+        b.put(.axis(AxisConfig(axis: .rz, spring: true)), 0, 7.7, 8.0, 1.3, "Педали")
+        b.row(7.7, h: 1.3, x: 8.2)
+        b.a(.joyButton(13), 2.6, "Оружие")
+        b.a(.joyButton(14), 2.6, "Сброс цели")
+        b.a(.joyButton(15), 2.6, "Доп.")
+        return KBLayout(id: "builtin.dcs", name: "DCS / джойстик", icon: "airplane", cols: 16, rows: 9, keys: b.keys, builtIn: true)
+    }
 
     /// Couch / one-hand control: trackpad, a big scroll wheel and wheels for volume, windows,
     /// tabs and zoom, media keys and the few keys you need without a keyboard.

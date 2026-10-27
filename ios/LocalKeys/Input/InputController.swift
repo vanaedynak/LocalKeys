@@ -233,6 +233,7 @@ final class InputController {
 
     /// Forget local state without talking to the PC (links are going away anyway).
     func resetLocal() {
+        JoystickController.shared.resetLocal()
         keyCounts.removeAll()
         buttonCounts.removeAll()
         latched.removeAll()

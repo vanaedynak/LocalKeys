@@ -28,6 +28,7 @@ internal static class Protocol
     public const byte MouseMove = 0x20;   // i16 dx, i16 dy
     public const byte MouseButton = 0x21; // u8 button, u8 down
     public const byte Scroll = 0x22;      // i16 vertical, i16 horizontal (1/120 notch units)
+    public const byte Joystick = 0x23;    // u8 n, n * i16 axis, u32 buttons, u8 mask of axes that hold position
     public const byte Command = 0x30;     // iPad -> PC JSON CommandMsg
     public const byte PcState = 0x40;     // PC -> iPad JSON PcStateMsg
     public const byte ShowUi = 0x50;      // local launcher -> agent (loopback only): open the window
@@ -91,4 +92,6 @@ internal sealed class PcStateMsg
     /// <summary>LAN IPv4 addresses of this PC: the iPad keeps them as a fallback when auto-discovery fails.</summary>
     public List<string> Addresses { get; set; } = new();
     public int Port { get; set; } = Protocol.WifiPort;
+    /// <summary>Virtual joystick (vJoy): ok | missing | busy | error.</summary>
+    public string? Joystick { get; set; }
 }

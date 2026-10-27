@@ -23,6 +23,7 @@ internal sealed class AgentCore : IDisposable
     public UsbMuxClient? Usb { get; private set; }
     public AdbBridge? Adb { get; private set; }
     public Updater Updater { get; }
+    public VirtualJoystick Joystick { get; } = new();
 
     private readonly object _gate = new();
     private readonly List<Session> _sessions = new();
@@ -89,6 +90,7 @@ internal sealed class AgentCore : IDisposable
                 // Safety first: never leave keys stuck when the link that carried them goes away.
                 dev.ReleaseAll();
                 dev.ActiveSession = null;
+                Joystick.Neutral(s.DeviceId);
             }
             foreach (var (k, p) in _pendingPairing.ToList())
                 if (ReferenceEquals(p.Session, s)) { _pendingPairing.Remove(k); cancelled = p; }
@@ -180,7 +182,21 @@ internal sealed class AgentCore : IDisposable
             }
             case Protocol.ReleaseAll:
                 dev.ReleaseAll();
+                Joystick.Neutral(s.DeviceId);
                 break;
+            case Protocol.Joystick:
+            {
+                if (p.Length < 1) return;
+                int n = Math.Min((int)p[0], 8);
+                if (p.Length < 1 + n * 2 + 4) return;
+                Span<short> axes = stackalloc short[n];
+                for (int i = 0; i < n; i++) axes[i] = BinaryPrimitives.ReadInt16BigEndian(p[(1 + i * 2)..]);
+                uint buttons = BinaryPrimitives.ReadUInt32BigEndian(p[(1 + n * 2)..]);
+                byte hold = p.Length > 5 + n * 2 ? p[5 + n * 2] : (byte)0;
+                dev.ActiveSession = s;
+                Joystick.Update(s.DeviceId!, axes, buttons, hold);
+                break;
+            }
             case Protocol.Text:
                 dev.ActiveSession = s;
                 InputInjector.Text(Session.Utf8(p));
@@ -295,6 +311,7 @@ internal sealed class AgentCore : IDisposable
     private PcStateMsg WithAddresses(PcStateMsg state)
     {
         state.Addresses = WifiServer.LocalAddresses();
+        state.Joystick = Joystick.Status;
         state.Port = Config.WifiPort;
         return state;
     }
@@ -326,12 +343,24 @@ internal sealed class AgentCore : IDisposable
             Log.Warn($"iPad {d.DeviceId} stopped responding for {d.SilentMs} ms with keys held: releasing all");
             d.ReleaseAll();
         }
+        // A frozen iPad must not leave the aircraft banking: centre the stick after a second of silence.
+        if (Joystick.Engaged && Joystick.Owner is { } owner)
+        {
+            DeviceInput? od;
+            lock (_gate) _devices.TryGetValue(owner, out od);
+            if (od != null && od.SilentMs > 1000)
+            {
+                Log.Warn($"iPad {owner} silent with the joystick deflected: centring");
+                Joystick.Neutral(owner);
+            }
+        }
     }
 
     public void Dispose()
     {
         _stallTimer.Dispose();
         ReleaseEverything();
+        Joystick.Dispose();
         Updater.Dispose();
         Wifi?.Dispose();
         Usb?.Dispose();

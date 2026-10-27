@@ -63,6 +63,7 @@ jobs:
           shoot builtin.laptop 9c-laptop-group midnight "" 1 keys
           shoot builtin.laptop 10-settings midnight "" "" "" settings
           shoot builtin.laptop 11-laptop-light light
+          shoot builtin.dcs 12-dcs
           ls -la shots
 
       - uses: actions/upload-artifact@v4
