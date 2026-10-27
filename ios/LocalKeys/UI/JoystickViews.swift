@@ -148,8 +148,11 @@ final class AxisView: ElementView {
             fill.frame = spring ? CGRect(x: min(x, w / 2), y: 0, width: abs(x - w / 2), height: h) : CGRect(x: 0, y: 0, width: x, height: h)
             handle.frame = CGRect(x: x - hs / 2, y: 0, width: hs, height: h)
             centerLine.frame = CGRect(x: w / 2 - 1, y: 0, width: 2, height: h)
-            label.frame = CGRect(x: 8, y: h / 2 - 20, width: w - 16, height: 20)
-            percent.frame = CGRect(x: 8, y: h / 2, width: w - 16, height: 18)
+            // Left edge, clear of the centre line and the handle in the middle.
+            label.textAlignment = .left
+            percent.textAlignment = .left
+            label.frame = CGRect(x: 14, y: h / 2 - 20, width: w / 2 - 28, height: 20)
+            percent.frame = CGRect(x: 14, y: h / 2, width: w / 2 - 28, height: 18)
         } else {
             let y = h * (1 - t)                        // up = more
             fill.frame = spring ? CGRect(x: 0, y: min(y, h / 2), width: w, height: abs(y - h / 2)) : CGRect(x: 0, y: y, width: w, height: h - y)
