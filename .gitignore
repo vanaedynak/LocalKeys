@@ -18,3 +18,14 @@ DerivedData/
 .DS_Store
 Thumbs.db
 __pycache__/
+
+# Android
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties
+android/keystore.properties
+*.jks
+*.apk
+dist-android/

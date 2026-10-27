@@ -21,6 +21,7 @@ internal sealed class AgentCore : IDisposable
     public LayoutMonitor Layouts { get; } = new();
     public WifiServer? Wifi { get; private set; }
     public UsbMuxClient? Usb { get; private set; }
+    public AdbBridge? Adb { get; private set; }
     public Updater Updater { get; }
 
     private readonly object _gate = new();
@@ -56,6 +57,11 @@ internal sealed class AgentCore : IDisposable
         {
             Usb = new UsbMuxClient(this);
             Usb.Start();
+            if (Config.WifiEnabled)
+            {
+                Adb = new AdbBridge(Config.WifiPort);
+                Adb.Start();
+            }
         }
     }
 
@@ -226,9 +232,11 @@ internal sealed class AgentCore : IDisposable
             return;
         }
 
-        if (s.Transport == Transport.Usb)
+        if (s.IsLoopback && Adb?.Active == true) s.ViaAdb = true;
+        if (s.Cable)
         {
-            // A physical cable plus the iPad's own "Trust this computer" is proof enough.
+            // A physical cable plus the device's own trust prompt ("Trust this computer" on the iPad,
+            // "Allow USB debugging" on Android) is proof enough.
             // This also pairs the device for Wi-Fi.
             var d = Config.Trust(hello.DeviceId, name);
             Accept(s, d.Token);
@@ -327,6 +335,7 @@ internal sealed class AgentCore : IDisposable
         Updater.Dispose();
         Wifi?.Dispose();
         Usb?.Dispose();
+        Adb?.Dispose();
         foreach (var s in Sessions()) s.Close();
         Layouts.Dispose();
     }

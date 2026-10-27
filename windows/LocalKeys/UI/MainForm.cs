@@ -11,6 +11,7 @@ internal sealed class MainForm : Form
     private readonly Label _wifi = new();
     private readonly Label _usb = new();
     private readonly LinkLabel _usbFix = new();
+    private readonly Label _android = new();
     private readonly LinkLabel _itunes = new();
     private readonly ListView _connected = new();
     private readonly ListView _trusted = new();
@@ -78,6 +79,10 @@ internal sealed class MainForm : Form
         _itunes.LinkClicked += (_, _) => Open("https://www.apple.com/itunes/download/win64");
         flow.Controls.Add(Card("USB-C кабель", _usb, _usbFix, _itunes));
 
+        _android.AutoSize = true;
+        _android.MaximumSize = new Size(500, 0);
+        flow.Controls.Add(Card("Android по кабелю", _android));
+
         // Connected
         SetupList(_connected, ("Устройство", 170), ("Канал", 80), ("Адрес", 130), ("С", 110));
         _connected.Height = 110;
@@ -94,7 +99,7 @@ internal sealed class MainForm : Form
             _lastTrustedSig = "";
             Refresh2();
         };
-        flow.Controls.Add(Card("Доверенные iPad", _trusted, forget));
+        flow.Controls.Add(Card("Доверенные устройства", _trusted, forget));
 
         // Options
         _autostart.Text = "Запускать вместе с Windows (в фоне, с правами для игр)";
@@ -226,13 +231,13 @@ internal sealed class MainForm : Form
 
         if (authed.Count > 0)
         {
-            var usb = authed.Any(s => s.Transport == Transport.Usb);
+            var usb = authed.Any(s => s.Cable);
             _status.Text = usb ? "Подключено по USB" : "Подключено по Wi-Fi";
             _status.ForeColor = Theme.Good;
         }
         else
         {
-            _status.Text = "Ожидание iPad";
+            _status.Text = "Ожидание iPad / телефона";
             _status.ForeColor = Theme.Warn;
         }
         _statusSub.Text = Elevation.IsElevated
@@ -273,6 +278,14 @@ internal sealed class MainForm : Form
             _itunes.Visible = true;
         }
 
+        var adb = _core.Adb;
+        if (adb == null) _android.Text = "Выключено.";
+        else if (adb.AdbPath == null) _android.Text = "Не найден adb: переустановите LocalKeys. Wi-Fi работает и без него.";
+        else if (adb.Devices > 0) _android.Text = $"Телефонов по кабелю: {adb.Devices}. Откройте LocalKeys на телефоне — подключение произойдёт само.";
+        else if (adb.Unauthorized > 0) _android.Text = "Телефон подключён: разрешите отладку по USB на его экране (отметьте «Всегда разрешать»).";
+        else _android.Text = "Включите на телефоне «Отладку по USB» (режим разработчика) и подключите кабель.";
+        _android.ForeColor = adb?.Unauthorized > 0 ? Theme.Warn : Theme.Text;
+
         var connSig = string.Join("|", authed.Select(s => s.GetHashCode()));
         if (connSig != _lastConnectedSig)
         {
@@ -282,7 +295,7 @@ internal sealed class MainForm : Form
             foreach (var s in authed)
                 _connected.Items.Add(new ListViewItem(new[]
                 {
-                    s.DeviceName ?? "?", s.Transport == Transport.Usb ? "USB" : "Wi-Fi", s.Remote, s.Connected.ToString("HH:mm:ss"),
+                    s.DeviceName ?? "?", s.Cable ? "USB" : "Wi-Fi", s.Remote, s.Connected.ToString("HH:mm:ss"),
                 }));
             _connected.EndUpdate();
         }

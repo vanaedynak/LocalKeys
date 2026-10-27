@@ -116,7 +116,13 @@ internal sealed class Session
 
     public bool IsLoopback => Transport == Transport.Wifi && (Remote == "127.0.0.1" || Remote == "::1");
 
-    public override string ToString() => $"{Transport}:{DeviceName ?? Remote}";
+    /// <summary>An Android phone on the cable: a loopback session through the ADB reverse tunnel.</summary>
+    public bool ViaAdb { get; set; }
+
+    /// <summary>Over a USB cable (iPad usbmux or Android ADB).</summary>
+    public bool Cable => Transport == Transport.Usb || ViaAdb;
+
+    public override string ToString() => $"{(ViaAdb ? "Adb" : Transport.ToString())}:{DeviceName ?? Remote}";
 
     public static string Utf8(ReadOnlySpan<byte> data) => Encoding.UTF8.GetString(data);
 }

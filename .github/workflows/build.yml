@@ -97,6 +97,15 @@ jobs:
             -p:Version=$env:VERSION -o windows/publish
           Get-ChildItem windows/publish
 
+      - name: Bundle adb (Android over USB)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://dl.google.com/android/repository/platform-tools-latest-windows.zip -OutFile pt.zip
+          Expand-Archive pt.zip -DestinationPath pt
+          New-Item -ItemType Directory -Force windows/publish/adb | Out-Null
+          Copy-Item pt/platform-tools/adb.exe, pt/platform-tools/AdbWinApi.dll, pt/platform-tools/AdbWinUsbApi.dll, pt/platform-tools/NOTICE.txt windows/publish/adb/
+          Get-ChildItem windows/publish/adb
+
       - name: Install Inno Setup
         shell: pwsh
         run: |
@@ -126,9 +135,51 @@ jobs:
           path: windows/dist/LocalKeys-Portable.exe
           if-no-files-found: error
 
+  android:
+    needs: version
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      BUILD: ${{ needs.version.outputs.build }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Android SDK
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platforms;android-36" "build-tools;36.0.0" > /dev/null
+
+      - name: Build APK
+        working-directory: android
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE }}
+          LK_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            export LK_KEYSTORE="$RUNNER_TEMP/release.jks"
+          fi
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon --console=plain
+          # Only a signed APK installs (and updates the installed app); without the keystore
+          # secret the APK is built as a check but not published.
+          if [ -f app/build/outputs/apk/release/app-release.apk ]; then
+            cp app/build/outputs/apk/release/app-release.apk ../LocalKeys-Android.apk
+            ls -la ../LocalKeys-Android.apk
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LocalKeys-Android
+          path: LocalKeys-Android.apk
+          if-no-files-found: ignore
+
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [version, ios, windows]
+    needs: [version, ios, windows, android]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -153,6 +204,7 @@ jobs:
             dist/LocalKeys.ipa
             dist/LocalKeys-Setup.exe
             dist/LocalKeys-Portable.exe
+            dist/LocalKeys-Android.apk
             dist/sidestore-source.json
           generate_release_notes: true
           make_latest: true

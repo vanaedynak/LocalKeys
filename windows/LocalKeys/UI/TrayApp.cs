@@ -75,8 +75,8 @@ internal sealed class TrayApp : ApplicationContext
         {
             var names = authed.GroupBy(s => s.DeviceId).Select(g =>
             {
-                var best = g.OrderBy(s => s.Transport == Transport.Usb ? 0 : 1).First();
-                return $"{best.DeviceName} ({(best.Transport == Transport.Usb ? "USB" : "Wi-Fi")})";
+                var best = g.OrderBy(s => s.Cable ? 0 : 1).First();
+                return $"{best.DeviceName} ({(best.Cable ? "USB" : "Wi-Fi")})";
             });
             text = "Подключено: " + string.Join(", ", names);
             _tray.Icon = Icons.TrayOn;
@@ -94,7 +94,7 @@ internal sealed class TrayApp : ApplicationContext
         int links = _core.Sessions().Count(x => x.Authed && x.DeviceId == s.DeviceId);
         if (links > 1) return;
         _tray.ShowBalloonTip(2500, "LocalKeys",
-            $"{s.DeviceName} подключён по {(s.Transport == Transport.Usb ? "USB" : "Wi-Fi")}", ToolTipIcon.None);
+            $"{s.DeviceName} подключён по {(s.Cable ? "USB" : "Wi-Fi")}", ToolTipIcon.None);
     }
 
     private void ToggleAutostart()

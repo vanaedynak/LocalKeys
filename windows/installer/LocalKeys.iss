@@ -44,6 +44,8 @@ en.Configuring=Configuring autostart and firewall...
 
 [Files]
 Source: "{#PublishDir}\LocalKeys.exe"; DestDir: "{app}"; Flags: ignoreversion
+; adb for Android phones on the cable. Never replaced in place: a running adb server holds the file.
+Source: "{#PublishDir}\adb\*"; DestDir: "{app}\adb"; Flags: onlyifdoesntexist skipifsourcedoesntexist
 
 [Icons]
 Name: "{autoprograms}\LocalKeys"; Filename: "{app}\LocalKeys.exe"
@@ -56,6 +58,7 @@ Filename: "{sys}\schtasks.exe"; Parameters: "/Run /TN LocalKeys"; Flags: runhidd
 
 [UninstallRun]
 Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM LocalKeys.exe"; Flags: runhidden waituntilterminated; RunOnceId: "KillAgent"
+Filename: "{app}\adb\adb.exe"; Parameters: "kill-server"; Flags: runhidden waituntilterminated skipifdoesntexist; RunOnceId: "StopAdb"
 Filename: "{app}\LocalKeys.exe"; Parameters: "--uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "Unregister"
 
 [Code]
