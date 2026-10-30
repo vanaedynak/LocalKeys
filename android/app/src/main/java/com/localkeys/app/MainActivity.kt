@@ -40,6 +40,7 @@ class MainActivity : Activity() {
     private lateinit var langBtn: TextView
     private lateinit var textBtn: TextView
     private lateinit var menuBtn: TextView
+    private lateinit var hideBtn: TextView
     private lateinit var pairing: TextView
     private lateinit var banner: TextView
     private val dp by lazy { resources.displayMetrics.density }
@@ -62,7 +63,7 @@ class MainActivity : Activity() {
         bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding((12 * dp).toInt(), 0, (8 * dp).toInt(), 0)
+            setPadding((8 * dp).toInt(), 0, (12 * dp).toInt(), 0)
         }
         dot = View(this)
         status = TextView(this).apply {
@@ -73,11 +74,14 @@ class MainActivity : Activity() {
         langBtn = pill("—") { showLangMenu() }
         textBtn = pill("Аа") { showTextPanel() }
         menuBtn = pill("Меню") { showSettings() }
-        bar.addView(dot, LinearLayout.LayoutParams((8 * dp).toInt(), (8 * dp).toInt()).apply { marginEnd = (8 * dp).toInt() })
-        bar.addView(status, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        for (b in listOf(langBtn, textBtn, menuBtn)) {
-            bar.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, (28 * dp).toInt()).apply { marginStart = (6 * dp).toInt() })
+        hideBtn = pill("Скрыть ▴") { hideTopBar() }
+        // Buttons on the left, over Esc / digits: far from Backspace, which sits under the right end.
+        for (b in listOf(menuBtn, textBtn, langBtn, hideBtn)) {
+            bar.addView(b, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, (28 * dp).toInt()).apply { marginEnd = (6 * dp).toInt() })
         }
+        status.gravity = Gravity.END
+        bar.addView(status, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = (8 * dp).toInt() })
+        bar.addView(dot, LinearLayout.LayoutParams((8 * dp).toInt(), (8 * dp).toInt()).apply { marginStart = (8 * dp).toInt() })
 
         val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         column.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (36 * dp).toInt()))
@@ -112,7 +116,7 @@ class MainActivity : Activity() {
                 (insets.displayCutout?.safeInsetLeft ?: 0) to (insets.displayCutout?.safeInsetRight ?: 0)
             }
             keyboard.setPadding(l, 0, r, 0)
-            bar.setPadding(l + (12 * dp).toInt(), 0, r + (8 * dp).toInt(), 0)
+            bar.setPadding(l + (8 * dp).toInt(), 0, r + (12 * dp).toInt(), 0)
             insets
         }
         setContentView(root)
@@ -150,6 +154,7 @@ class MainActivity : Activity() {
 
     override fun onStop() {
         keyboard.releaseAllTouches()
+        TypingAssist.save()
         ConnectionManager.stop()
         super.onStop()
     }
@@ -203,7 +208,7 @@ class MainActivity : Activity() {
         bar.setBackgroundColor(t.bar)
         bar.visibility = if (Settings.showTopBar) View.VISIBLE else View.GONE
         status.setTextColor(t.textDim)
-        for (b in listOf(langBtn, textBtn, menuBtn)) {
+        for (b in listOf(langBtn, textBtn, menuBtn, hideBtn)) {
             b.setTextColor(t.text)
             b.background = GradientDrawable().apply { cornerRadius = 14 * dp; setColor(KTheme.alpha(t.key, 0.8f)) }
         }
@@ -242,6 +247,13 @@ class MainActivity : Activity() {
         } else {
             banner.visibility = View.GONE
         }
+    }
+
+    /** The keys take the whole screen; the menu stays one long Fn press away. */
+    private fun hideTopBar() {
+        Settings.showTopBar = false
+        applySettings()
+        android.widget.Toast.makeText(this, "Панель скрыта. Меню — удерживайте Fn 1 секунду", android.widget.Toast.LENGTH_LONG).show()
     }
 
     // MARK: language
@@ -367,13 +379,27 @@ class MainActivity : Activity() {
         ui.switch("Вибрация при нажатии", Settings.haptics) { Settings.haptics = it }
         ui.switch("Звук нажатия", Settings.keySound) { Settings.keySound = it }
         ui.switch("Залипание модификаторов (тап — один раз, двойной тап — закрепить)", Settings.stickyModifiers) { Settings.stickyModifiers = it }
-        ui.switch("Верхняя панель (без неё — меню по долгому Fn)", Settings.showTopBar) { Settings.showTopBar = it }
+        ui.switch("Верхняя панель (без неё клавиши на весь экран, меню — долгий Fn)", Settings.showTopBar) { Settings.showTopBar = it }
         ui.slider("Размер клавиатуры", 60, 100, (Settings.kbScale * 100).roundToInt(), { "$it%" }) { Settings.kbScale = it / 100f }
         ui.slider("Высота клавиш", 100, 180, (Settings.keyAspect * 100).roundToInt(), { "${it}% ширины" }) { Settings.keyAspect = it / 100f }
         ui.slider("Положение (если клавиатура меньше экрана)", 0, 100, (Settings.vpos * 100).roundToInt(), {
             when { it < 20 -> "вверху"; it > 80 -> "внизу"; else -> "по центру" }
         }) { Settings.vpos = it / 100f }
         ui.slider("Промежуток между клавишами", 0, 12, Settings.keyGap.roundToInt(), { "$it dp" }) { Settings.keyGap = it.toFloat() }
+
+        ui.section("Точность нажатий")
+        ui.text(
+            "Клавиатура учится, куда именно вы попадаете по каждой клавише (большие пальцы обычно " +
+                "промахиваются одинаково), и незаметно сдвигает её зону. Стёрли букву и нажали соседнюю — " +
+                "она запомнит, что это был промах.\n" +
+                "Слова: при нажатии на стык двух букв выигрывает та, что продолжает слово (RU, UA, EN). " +
+                "Граница сдвигается не больше чем на 1/5 клавиши; с Ctrl, Alt, Win, Fn и в играх " +
+                "(зажатые клавиши) — не участвуют."
+        )
+        ui.switch("Подстраиваться под мои нажатия", Settings.smartTouch) { Settings.smartTouch = it }
+        ui.switch("Учитывать слова", Settings.smartWords) { Settings.smartWords = it }
+        ui.switch("Показывать точки, куда я попадаю", Settings.showTouchDots) { Settings.showTouchDots = it }
+        ui.button("Сбросить обучение") { TypingAssist.forget() }
 
         ui.section("Подписи клавиш")
         val modes = listOf("auto", "en", "ru", "ua")
@@ -395,7 +421,8 @@ class MainActivity : Activity() {
             Settings.forgetAllPairings(); cm.reconnectWifi(); cm.reconnectUsb()
         }
         val ver = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "?" }
-        ui.text("LocalKeys для Android $ver · раскладка Dark Project 68")
+        ui.text("LocalKeys для Android $ver · раскладка Dark Project 68\n" +
+            "Словари: FrequencyWords (Hermit Dave, OpenSubtitles), CC BY-SA 4.0")
 
         // A plain Dialog: AlertDialog clips a long custom view instead of letting it scroll.
         val d = android.app.Dialog(ctx)

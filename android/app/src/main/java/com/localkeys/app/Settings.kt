@@ -34,7 +34,7 @@ object Settings {
     /** Keyboard size relative to the screen (0.6...1). */
     var kbScale: Float get() = f("kbScale", 1f); set(v) = put { putFloat("kbScale", v) }
     /** Vertical position of a smaller keyboard: 0 top ... 1 bottom. */
-    var vpos: Float get() = f("vpos", 1f); set(v) = put { putFloat("vpos", v) }
+    var vpos: Float get() = f("vpos", 0f); set(v) = put { putFloat("vpos", v) }
     /** Max key height relative to its width (taller keys fill a phone screen). */
     var keyAspect: Float get() = f("keyAspect", 1.6f); set(v) = put { putFloat("keyAspect", v) }
 
@@ -49,6 +49,12 @@ object Settings {
     var secondLang: String get() = s("secondLang", "ru"); set(v) = put { putString("secondLang", v) }
     var altScale: Float get() = f("altScale", 0.72f); set(v) = put { putFloat("altScale", v) }
     var altShifted: Boolean get() = b("altShifted", true); set(v) = put { putBoolean("altShifted", v) }
+
+    // Typing assist (see TypingAssist)
+    var smartTouch: Boolean get() = b("smartTouch", true); set(v) = put { putBoolean("smartTouch", v) }
+    var smartWords: Boolean get() = b("smartWords", true); set(v) = put { putBoolean("smartWords", v) }
+    var showTouchDots: Boolean get() = b("showTouchDots", false); set(v) = put { putBoolean("showTouchDots", v) }
+    var touchModel: String get() = s("touchModel", ""); set(v) = put { putString("touchModel", v) }
 
     // Connection
     var wifiEnabled: Boolean get() = b("wifiEnabled", true); set(v) = put { putBoolean("wifiEnabled", v) }

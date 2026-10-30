@@ -11,11 +11,12 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.media.AudioManager
 import android.os.Build
+import android.os.SystemClock
 import android.util.SparseArray
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
-import kotlin.math.hypot
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 
@@ -49,6 +50,9 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val rect = RectF()
         val style = def.resolvedStyle()
         var pressCount = 0
+        var downAt = 0L
+        /** Scan code of a plain key, -1 for specials. */
+        val code = (def.action as? KeyAction.Key)?.code ?: -1
         var pressed = false
         var latched = false
         var fnLayer = false
@@ -88,8 +92,16 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private val input = InputController
 
+    /** One key unit in pixels, and the middle of the keyboard (left / right thumb). */
+    private var ux = 1f
+    private var uy = 1f
+    private var midX = 0f
+    private val cands = Array(caps.size) { TypingAssist.Candidate() }
+    private val chordMods = intArrayOf(Keys.LCTRL, Keys.RCTRL, Keys.LALT, Keys.RALT, Keys.LWIN, Keys.RWIN)
+
     init {
         isHapticFeedbackEnabled = true
+        TypingAssist.init(ctx, caps.size)
         updateLegends()
     }
 
@@ -116,6 +128,9 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val ox = paddingLeft + pad + (availW - ux * layout.cols) / 2
         val oy = paddingTop + pad + max(0f, availH - uy * layout.rows) * Settings.vpos.coerceIn(0f, 1f)
         val gap = Settings.keyGap * dp
+        this.ux = ux
+        this.uy = uy
+        midX = ox + ux * layout.cols / 2
         altScale = Settings.altScale
         for (c in caps) {
             val k = c.def
@@ -134,19 +149,70 @@ class KeyboardView(ctx: Context) : View(ctx) {
         invalidate()
     }
 
-    private fun element(x: Float, y: Float): Int {
-        for (i in caps.indices.reversed()) if (caps[i].cell.contains(x, y)) return i
-        // In a gap / just outside: snap to the nearest key within a small slack.
-        var best = -1
-        var bestD = 14 * dp
+    private fun wide(c: Cap) = c.cell.width() > ux * 1.3f
+
+    /**
+     * The key a touch means. Each key scores how deep inside it the touch is (signed distance to
+     * its nearest edge, in keys, negative outside), with the key's zone shifted to where this user
+     * actually hits it; with everything off that is exactly the printed key, gaps going to the
+     * nearest one. Then words may move a border between two letters a little (TypingAssist).
+     */
+    private fun element(x: Float, y: Float, now: Long): Int {
+        var n = 0
+        val reachX = ux * 0.6f
+        val reachY = uy * 0.6f
         for (i in caps.indices) {
-            val c = caps[i].cell
-            val dx = max(max(c.left - x, 0f), x - c.right)
-            val dy = max(max(c.top - y, 0f), y - c.bottom)
-            val d = hypot(dx, dy)
-            if (d < bestD) { bestD = d; best = i }
+            val c = caps[i]
+            val r = c.cell
+            if (x < r.left - reachX || x > r.right + reachX || y < r.top - reachY || y > r.bottom + reachY) continue
+            val right = r.centerX() > midX
+            val ox = if (wide(c)) 0f else TypingAssist.offsetX(i, right) * ux
+            val oy = TypingAssist.offsetY(i, right) * uy
+            val sx = min(x - r.left - ox, r.right + ox - x) / ux
+            val sy = min(y - r.top - oy, r.bottom + oy - y) / uy
+            val k = cands[n++]
+            k.index = i
+            k.code = c.code
+            k.score = min(sx, sy)
         }
-        return best
+        if (n == 0) return -1
+        val j = TypingAssist.choose(cands, n, wordsAllowed(now), now)
+        // Far outside every key (more than the old 14dp slack): not a key press.
+        if (-cands[j].score * min(ux, uy) > 14 * dp) return -1
+        return cands[j].index
+    }
+
+    private fun chordHeld(): Boolean = chordMods.any { input.isHeld(it) || input.latched[it] != null }
+
+    /** Words help only plain typing: not on the Fn layer, in shortcuts, or with a key held (games). */
+    private fun wordsAllowed(now: Long): Boolean {
+        if (fnHeld > 0 || chordHeld()) return false
+        for (c in caps) if (c.pressCount > 0 && c.code >= 0 && !Keys.isModifier(c.code) && now - c.downAt > 250) return false
+        return true
+    }
+
+    /** Teach the touch model with a typed key; erased-and-replaced keys teach where the miss belonged. */
+    private fun learnTap(idx: Int, x: Float, y: Float, now: Long) {
+        val c = caps[idx]
+        val code = c.code
+        if (code < 0) return
+        if (code == Keys.BACKSPACE) {
+            TypingAssist.onErase(now)
+        } else {
+            val r = c.cell
+            val right = r.centerX() > midX
+            TypingAssist.takeErased(now)?.let { e ->
+                val prev = caps.getOrNull(e.key)
+                if (prev != null && e.key != idx && abs(prev.cell.centerX() - r.centerX()) < ux * 1.6f &&
+                    abs(prev.cell.centerY() - r.centerY()) < uy * 1.2f) {
+                    TypingAssist.learnCorrection(idx, (e.x - r.centerX()) / ux, (e.y - r.centerY()) / uy, !wide(c), right)
+                }
+            }
+            if (!Keys.isModifier(code)) {
+                TypingAssist.onTap(idx, (x - r.centerX()) / ux, (y - r.centerY()) / uy, x, y, !wide(c), right, now)
+            }
+        }
+        TypingAssist.onKey(code, !chordHeld())
     }
 
     // MARK: legends & visual state
@@ -177,7 +243,10 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     /** `resolve`: rebuild the legend tables (PC layout or settings changed). Shift / Fn only relabel. */
     fun updateLegends(resolve: Boolean = true) {
-        if (resolve) legends = Legends.resolve(ConnectionManager.pcState)
+        if (resolve) {
+            legends = Legends.resolve(ConnectionManager.pcState)
+            TypingAssist.setLayout(TypingAssist.typedTable(ConnectionManager.pcState))
+        }
         altScale = Settings.altScale
         val pc = ConnectionManager.pcState
         for (c in caps) {
@@ -310,6 +379,21 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val t = theme
         canvas.drawColor(t.bg)
         for (c in caps) drawCap(canvas, c, t)
+        if (Settings.showTouchDots && Settings.smartTouch) drawTouchDots(canvas, t)
+    }
+
+    /** Where each key has learned this user's touch lands (bigger dot: more confident). */
+    private fun drawTouchDots(canvas: Canvas, t: KTheme) {
+        for (i in caps.indices) {
+            val c = caps[i]
+            val n = TypingAssist.samples(i)
+            if (n < 3) continue
+            val right = c.cell.centerX() > midX
+            val x = c.cell.centerX() + (if (wide(c)) 0f else TypingAssist.offsetX(i, right) * ux)
+            val y = c.cell.centerY() + TypingAssist.offsetY(i, right) * uy
+            fill.color = KTheme.alpha(t.latched, 0.85f)
+            canvas.drawCircle(x, y, (2f + min(n, 40f) / 20f) * dp, fill)
+        }
     }
 
     private fun drawCap(canvas: Canvas, c: Cap, t: KTheme) {
@@ -435,6 +519,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private fun keyDown(c: Cap, a: KeyAction) {
         c.pressCount++
+        c.downAt = SystemClock.uptimeMillis()
         feedback()
         if (!(a is KeyAction.Sp && a.special == Special.FN)) fnSolo = false
         when (a) {
@@ -448,7 +533,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
                     }
                     updateLegends(resolve = false)
                 }
-                Special.LANG_SWITCH -> input.tapCombo(listOf(Keys.LWIN, Keys.SPACE))
+                Special.LANG_SWITCH -> { TypingAssist.reset(); input.tapCombo(listOf(Keys.LWIN, Keys.SPACE)) }
                 Special.RELEASE_ALL -> { releaseAllTouches(); input.releaseAll() }
                 Special.TEXT_PANEL -> {}
             }
@@ -466,7 +551,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
                     if (fnHeld == 0) removeCallbacks(fnMenu)
                     updateLegends(resolve = false)
                 }
-                Special.TEXT_PANEL -> onSpecial?.invoke(Special.TEXT_PANEL)
+                Special.TEXT_PANEL -> { TypingAssist.reset(); onSpecial?.invoke(Special.TEXT_PANEL) }
                 else -> {}
             }
         }
@@ -520,7 +605,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
 
     private fun begin(id: Int, x: Float, y: Float) {
         bindings[id]?.let { end(id) }
-        val idx = element(x, y)
+        val now = SystemClock.uptimeMillis()
+        val idx = element(x, y, now)
         if (idx < 0) {
             bindings.put(id, -1 to false)
             return
@@ -529,6 +615,7 @@ class KeyboardView(ctx: Context) : View(ctx) {
         val fn = fnHeld > 0 && c.def.fn != null
         bindings.put(id, idx to fn)
         keyDown(c, actionOf(c.def, fn))
+        if (fn) TypingAssist.reset() else learnTap(idx, x, y, now)
     }
 
     private fun end(id: Int) {
@@ -536,6 +623,8 @@ class KeyboardView(ctx: Context) : View(ctx) {
         bindings.remove(id)
         if (b.first < 0) return
         val c = caps[b.first]
+        // Held, not tapped (games, key repeat): says nothing about aim or words.
+        if (c.code >= 0 && !Keys.isModifier(c.code) && SystemClock.uptimeMillis() - c.downAt > 450) TypingAssist.onHold(b.first)
         keyUp(c, actionOf(c.def, b.second))
     }
 }
