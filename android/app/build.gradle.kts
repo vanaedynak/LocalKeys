@@ -21,8 +21,8 @@ android {
         applicationId = "com.localkeys.app"
         minSdk = 26
         targetSdk = 36
-        versionCode = (System.getenv("BUILD") ?: "1").toInt()
-        versionName = System.getenv("VERSION") ?: "1.0.0"
+        versionCode = (System.getenv("BUILD") ?: "180").toInt()
+        versionName = System.getenv("VERSION") ?: "1.8.0"
     }
 
     signingConfigs {

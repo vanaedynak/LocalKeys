@@ -37,8 +37,23 @@ object Keys {
     const val PLAY_PAUSE = 0xE022
     const val NEXT_TRACK = 0xE019
     const val PREV_TRACK = 0xE010
-    const val P = 0x19
+    const val G = 0x22
     const val M = 0x32
+    const val P = 0x19
+    const val Z = 0x2C
+    const val NUM_7 = 0x47
+    const val NUM_8 = 0x48
+    const val NUM_9 = 0x49
+    const val NUM_4 = 0x4B
+    const val NUM_5 = 0x4C
+    const val NUM_6 = 0x4D
+    const val NUM_1 = 0x4F
+    const val NUM_2 = 0x50
+    const val NUM_3 = 0x51
+    const val NUM_0 = 0x52
+    const val NUM_DOT = 0x53
+    const val NUM_DIV = 0xE035
+    const val NUM_ENTER = 0xE01C
 
     fun digit(n: Int) = if (n == 0) 0x0B else 0x01 + n
     fun f(n: Int) = when (n) {
@@ -80,6 +95,10 @@ object Keys {
         for (n in 1..12) put(f(n), "F$n")
         put(VOL_MUTE, "Mute"); put(VOL_DOWN, "Vol−"); put(VOL_UP, "Vol+")
         put(PLAY_PAUSE, "Play"); put(NEXT_TRACK, "Next"); put(PREV_TRACK, "Prev")
+        put(NUM_0, "Num0"); put(NUM_1, "Num1"); put(NUM_2, "Num2"); put(NUM_3, "Num3")
+        put(NUM_4, "Num4"); put(NUM_5, "Num5"); put(NUM_6, "Num6"); put(NUM_7, "Num7")
+        put(NUM_8, "Num8"); put(NUM_9, "Num9"); put(NUM_DOT, "Num."); put(NUM_DIV, "Num/")
+        put(NUM_ENTER, "Num⏎")
     }
 
     private val shorts: Map<Int, String> = mapOf(

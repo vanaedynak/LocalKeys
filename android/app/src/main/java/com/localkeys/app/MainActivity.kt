@@ -34,6 +34,7 @@ import kotlin.math.roundToInt
 
 class MainActivity : Activity() {
     private lateinit var keyboard: KeyboardView
+    private lateinit var flight: FlightView
     private lateinit var bar: LinearLayout
     private lateinit var dot: View
     private lateinit var status: TextView
@@ -46,19 +47,31 @@ class MainActivity : Activity() {
     private val dp by lazy { resources.displayMetrics.density }
 
     private val onConn: () -> Unit = { updateStatus() }
-    private val onLegends: () -> Unit = { keyboard.updateLegends() }
+    private val onLegends: () -> Unit = { keyboard.updateLegends(); flight.updatePcStatus() }
     private val onInput: () -> Unit = { keyboard.onInputState() }
-    private val onStall: () -> Unit = { keyboard.releaseAllTouches() }
+    private val onStall: () -> Unit = { releaseAllInputs() }
+    private val onLinkReady: () -> Unit = { FlightController.engine.resendVjoyIfUsed() }
+
+    private fun isMsfs() = Presets.byId(Settings.presetId).kind == PresetKind.MSFS
+
+    private fun releaseAllInputs() {
+        keyboard.releaseAllTouches()
+        flight.releaseAllTouches()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         Settings.init(this)
         ConnectionManager.init(this)
+        FlightController.init(this)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         keyboard = KeyboardView(this)
         keyboard.onMenu = { showSettings() }
         keyboard.onSpecial = { if (it == Special.TEXT_PANEL) showTextPanel() }
+
+        flight = FlightView(this)
+        flight.onMenu = { showSettings() }
 
         bar = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -83,9 +96,13 @@ class MainActivity : Activity() {
         bar.addView(status, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginStart = (8 * dp).toInt() })
         bar.addView(dot, LinearLayout.LayoutParams((8 * dp).toInt(), (8 * dp).toInt()).apply { marginStart = (8 * dp).toInt() })
 
+        val surfaceHost = FrameLayout(this).apply {
+            addView(keyboard, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            addView(flight, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+        }
         val column = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
         column.addView(bar, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (36 * dp).toInt()))
-        column.addView(keyboard, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        column.addView(surfaceHost, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
 
         pairing = TextView(this).apply {
             setTextColor(Color.WHITE)
@@ -107,19 +124,24 @@ class MainActivity : Activity() {
         root.addView(pairing, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.CENTER))
         root.addView(banner, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT,
             Gravity.TOP or Gravity.CENTER_HORIZONTAL).apply { topMargin = (6 * dp).toInt() })
-        // The camera cutout: keep keys out from under it (the side it is on in landscape).
+        // The camera cutout + any visible system status bar: keep controls out from under them.
         root.setOnApplyWindowInsetsListener { _, insets ->
-            val (l, r) = if (Build.VERSION.SDK_INT >= 30) {
+            val (l, r, topInset) = if (Build.VERSION.SDK_INT >= 30) {
                 val c = insets.getInsets(WindowInsets.Type.displayCutout())
-                c.left to c.right
+                val sb = insets.getInsets(WindowInsets.Type.statusBars())
+                Triple(c.left, c.right, sb.top)
             } else {
-                (insets.displayCutout?.safeInsetLeft ?: 0) to (insets.displayCutout?.safeInsetRight ?: 0)
+                Triple(insets.displayCutout?.safeInsetLeft ?: 0, insets.displayCutout?.safeInsetRight ?: 0, 0)
             }
+            column.setPadding(0, topInset, 0, 0)
             keyboard.setPadding(l, 0, r, 0)
+            flight.setPadding(l, 0, r, 0)
             bar.setPadding(l + (8 * dp).toInt(), 0, r + (12 * dp).toInt(), 0)
             insets
         }
         setContentView(root)
+        hideSystemBars()
+        root.post { hideSystemBars() }
 
         if (Build.VERSION.SDK_INT >= 33) {
             // Back gestures while typing are accidents: never leave the keyboard because of one.
@@ -128,6 +150,7 @@ class MainActivity : Activity() {
 
         ConnectionManager.onChange.add(onConn)
         ConnectionManager.onLegends.add(onLegends)
+        ConnectionManager.onLinkReady.add(onLinkReady)
         InputController.onState.add(onInput)
         InputController.onStallRecovered.add(onStall)
         InputController.startWatchdog()
@@ -141,26 +164,35 @@ class MainActivity : Activity() {
     override fun onDestroy() {
         ConnectionManager.onChange.remove(onConn)
         ConnectionManager.onLegends.remove(onLegends)
+        ConnectionManager.onLinkReady.remove(onLinkReady)
         InputController.onState.remove(onInput)
         InputController.onStallRecovered.remove(onStall)
+        FlightController.stopLoop()
         super.onDestroy()
     }
 
     override fun onStart() {
         super.onStart()
         ConnectionManager.start()
+        if (isMsfs()) FlightController.startLoop()
         updateStatus()
     }
 
     override fun onStop() {
-        keyboard.releaseAllTouches()
+        releaseAllInputs()
+        FlightController.stopLoop()
         TypingAssist.save()
         ConnectionManager.stop()
         super.onStop()
     }
 
+    override fun onResume() {
+        super.onResume()
+        hideSystemBars()
+    }
+
     override fun onPause() {
-        keyboard.releaseAllTouches()
+        releaseAllInputs()
         super.onPause()
     }
 
@@ -171,7 +203,7 @@ class MainActivity : Activity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemBars() else keyboard.releaseAllTouches()
+        if (hasFocus) hideSystemBars() else releaseAllInputs()
     }
 
     private fun hideSystemBars() {
@@ -201,12 +233,33 @@ class MainActivity : Activity() {
 
     // MARK: state
 
+    private fun switchPreset(id: String) {
+        if (Settings.presetId == id) return
+        releaseAllInputs()
+        InputController.releaseAll()
+        Settings.presetId = id
+        applySettings()
+    }
+
     private fun applySettings() {
         val t = KTheme.byId(Settings.themeId)
+        val msfs = isMsfs()
         keyboard.theme = t
+        flight.theme = t
+        keyboard.visibility = if (msfs) View.GONE else View.VISIBLE
+        flight.visibility = if (msfs) View.VISIBLE else View.GONE
+        if (msfs) {
+            FlightController.syncSettings()
+            FlightController.startLoop()
+        } else {
+            FlightController.stopLoop()
+        }
+
         window.decorView.setBackgroundColor(t.bg)
         bar.setBackgroundColor(t.bar)
         bar.visibility = if (Settings.showTopBar) View.VISIBLE else View.GONE
+        textBtn.visibility = if (msfs) View.GONE else View.VISIBLE
+        langBtn.visibility = if (msfs) View.GONE else View.VISIBLE
         status.setTextColor(t.textDim)
         for (b in listOf(langBtn, textBtn, menuBtn, hideBtn)) {
             b.setTextColor(t.text)
@@ -214,6 +267,8 @@ class MainActivity : Activity() {
         }
         keyboard.relayout()
         keyboard.updateLegends()
+        flight.relayout()
+        flight.updatePcStatus()
         updateStatus()
     }
 
@@ -249,11 +304,12 @@ class MainActivity : Activity() {
         }
     }
 
-    /** The keys take the whole screen; the menu stays one long Fn press away. */
+    /** The cockpit/keys take the whole screen; menu remains via on-screen button or long Fn press. */
     private fun hideTopBar() {
         Settings.showTopBar = false
         applySettings()
-        android.widget.Toast.makeText(this, "Панель скрыта. Меню — удерживайте Fn 1 секунду", android.widget.Toast.LENGTH_LONG).show()
+        val msg = if (isMsfs()) "Панель скрыта. Меню — кнопка «Меню» на экране" else "Панель скрыта. Меню — удерживайте Fn 1 секунду"
+        android.widget.Toast.makeText(this, msg, android.widget.Toast.LENGTH_LONG).show()
     }
 
     // MARK: language
@@ -313,17 +369,24 @@ class MainActivity : Activity() {
     }
 
     private fun showWelcome() {
-        AlertDialog.Builder(dialogContext())
+        val ctx = dialogContext()
+        val tv = TextView(ctx).apply {
+            text = "Клавиатура Dark Project 68 и игровой пульт для вашего ПК.\n\n" +
+                "• Wi-Fi: телефон и ПК в одной сети, на ПК запущен LocalKeys. При первом подключении подтвердите код на ПК.\n" +
+                "• Кабель: включите «Отладку по USB» (подробно — в Меню → «Подключение по кабелю»).\n\n" +
+                "Fn + цифры — F1…F12, Fn + стрелки — громкость и треки.\n" +
+                "Подержите Fn одну секунду — откроется меню с выбором пресета (например, MSFS 2020) и настройками."
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f)
+            setTextColor(Color.rgb(215, 220, 232))
+            setPadding((22 * dp).toInt(), (10 * dp).toInt(), (22 * dp).toInt(), (8 * dp).toInt())
+        }
+        val scroll = ScrollView(ctx).apply { addView(tv) }
+        val d = AlertDialog.Builder(ctx)
             .setTitle("LocalKeys")
-            .setMessage(
-                "Клавиатура Dark Project 68 для вашего ПК.\n\n" +
-                    "• Wi-Fi: телефон и ПК в одной сети, на ПК запущен LocalKeys. При первом подключении подтвердите код на ПК.\n" +
-                    "• Кабель: включите «Отладку по USB» (подробно — в Меню → «Подключение по кабелю»).\n\n" +
-                    "Fn + цифры — F1…F12, Fn + стрелки — громкость и треки.\n" +
-                    "Подержите Fn одну секунду — откроется меню (даже если верхняя панель скрыта)."
-            )
+            .setView(scroll)
             .setPositiveButton("Понятно", null)
             .show()
+        widen(d)
     }
 
     private fun showSettings() {
@@ -335,6 +398,103 @@ class MainActivity : Activity() {
         val ui = SettingsUi(ctx, col, dp) { applySettings() }
         val cm = ConnectionManager
 
+        // Preset selector right at the top (so holding Fn opens preset switching immediately).
+        ui.section("Режим / Пресет")
+        val presetRow = LinearLayout(ctx).apply {
+            orientation = LinearLayout.HORIZONTAL
+            isBaselineAligned = false
+        }
+        val presetCards = ArrayList<Pair<Preset, LinearLayout>>()
+        val msfsBox = LinearLayout(ctx).apply { orientation = LinearLayout.VERTICAL }
+
+        fun refreshPresetUi() {
+            val cur = Presets.byId(Settings.presetId).id
+            val accent = KTheme.byId(Settings.themeId).accent
+            for ((p, card) in presetCards) {
+                val active = p.id == cur
+                card.background = GradientDrawable().apply {
+                    cornerRadius = 12 * dp
+                    setColor(if (active) KTheme.blend(Color.rgb(52, 56, 70), accent, 0.24f) else Color.rgb(50, 53, 64))
+                    setStroke(((if (active) 2f else 1f) * dp).roundToInt().coerceAtLeast(1), if (active) accent else Color.argb(40, 255, 255, 255))
+                }
+            }
+            msfsBox.visibility = if (isMsfs()) View.VISIBLE else View.GONE
+        }
+
+        Presets.all.forEachIndexed { idx, p ->
+            val card = LinearLayout(ctx).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding((14 * dp).toInt(), (12 * dp).toInt(), (14 * dp).toInt(), (12 * dp).toInt())
+                isClickable = true
+                isFocusable = true
+                setOnClickListener {
+                    switchPreset(p.id)
+                    refreshPresetUi()
+                }
+            }
+            card.addView(TextView(ctx).apply {
+                text = p.name
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 15f)
+                typeface = Typeface.DEFAULT_BOLD
+                setTextColor(Color.WHITE)
+            })
+            card.addView(TextView(ctx).apply {
+                text = p.subtitle
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+                setTextColor(Color.argb(190, 255, 255, 255))
+                setPadding(0, (4 * dp).toInt(), 0, 0)
+            })
+            presetCards.add(p to card)
+            val lp = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply {
+                if (idx > 0) marginStart = (10 * dp).toInt()
+            }
+            presetRow.addView(card, lp)
+        }
+        col.addView(presetRow, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            topMargin = (8 * dp).toInt()
+        })
+
+        // MSFS 2020 options shown cleanly right under the preset selector when active.
+        val msfsUi = SettingsUi(ctx, msfsBox, dp) {
+            FlightController.syncSettings()
+            applySettings()
+        }
+        msfsUi.section("Настройки MSFS 2020")
+        val joyModes = listOf("kb", "vjoy")
+        msfsUi.choice(
+            "Способ управления",
+            listOf("Клавиатура MSFS (стандарт)", "vJoy (аналог)"),
+            joyModes.indexOf(Settings.msfsInputMode).coerceAtLeast(0)
+        ) {
+            Settings.msfsInputMode = joyModes[it]
+        }
+        val joyStatusText = msfsUi.text("")
+        fun refreshJoyStatus() {
+            val st = cm.pcState?.joystick
+            joyStatusText.text = when {
+                Settings.msfsInputMode == "kb" ->
+                    "Стандарт MSFS: работает на обычных настройках игры без переназначений. Важно: NumLock на ПК должен быть включён."
+                st == "ok" -> "vJoy на ПК: подключён (8 осей, 32 кнопки)."
+                st == "busy" -> "vJoy на ПК: занят другой программой."
+                cm.phase == ConnectionManager.Phase.CONNECTED ->
+                    "vJoy на ПК не найден — переключитесь на «Клавиатура MSFS (стандарт)» или установите vJoy."
+                else -> "vJoy: нет подключения к ПК."
+            }
+        }
+        refreshJoyStatus()
+        msfsUi.slider("Отклик штурвала (клавиатура)", 700, 2200, Settings.msfsStickTravelMs, {
+            when { it <= 950 -> "быстрый ($it мс)"; it >= 1650 -> "плавный ($it мс)"; else -> "средний ($it мс)" }
+        }) { Settings.msfsStickTravelMs = it }
+        msfsUi.slider("Скорость обзора камерой", 50, 250, (Settings.msfsCameraSens * 100).roundToInt(), { "$it%" }) {
+            Settings.msfsCameraSens = it / 100f
+        }
+        msfsUi.slider("Угол наклона (гироскоп)", 12, 45, Settings.msfsTiltRangeDeg.roundToInt(), { "$it°" }) {
+            Settings.msfsTiltRangeDeg = it.toFloat()
+        }
+        msfsUi.switch("Инверсия тангажа (вверх/вниз)", Settings.msfsInvertY) { Settings.msfsInvertY = it }
+        col.addView(msfsBox, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        refreshPresetUi()
+
         ui.section("Подключение")
         val connText = ui.text("")
         fun refreshConn() {
@@ -343,6 +503,7 @@ class MainActivity : Activity() {
                 (if (cm.pcName.isNotEmpty()) "\nПК: ${cm.pcName}" else "") +
                 "\nПК в сети: $pcs" + (if (cm.scanning) " (поиск…)" else "") +
                 "\nКабель: " + (if (cm.usbLinked) "подключён" else "нет")
+            refreshJoyStatus()
         }
         refreshConn()
         val connListener: () -> Unit = { refreshConn() }
@@ -361,7 +522,7 @@ class MainActivity : Activity() {
             }
         }
         ui.edit("Имя этого телефона на ПК", Settings.deviceName, "") { if (it.isNotBlank()) Settings.deviceName = it.trim() }
-        ui.button("Отпустить все клавиши на ПК") { InputController.releaseAll(); keyboard.releaseAllTouches() }
+        ui.button("Отпустить все клавиши на ПК") { InputController.releaseAll(); releaseAllInputs() }
 
         ui.section("Подключение по кабелю")
         ui.text(
@@ -379,7 +540,7 @@ class MainActivity : Activity() {
         ui.switch("Вибрация при нажатии", Settings.haptics) { Settings.haptics = it }
         ui.switch("Звук нажатия", Settings.keySound) { Settings.keySound = it }
         ui.switch("Залипание модификаторов (тап — один раз, двойной тап — закрепить)", Settings.stickyModifiers) { Settings.stickyModifiers = it }
-        ui.switch("Верхняя панель (без неё клавиши на весь экран, меню — долгий Fn)", Settings.showTopBar) { Settings.showTopBar = it }
+        ui.switch("Верхняя панель (меню — кнопка на экране или долгий Fn)", Settings.showTopBar) { Settings.showTopBar = it }
         ui.slider("Размер клавиатуры", 60, 100, (Settings.kbScale * 100).roundToInt(), { "$it%" }) { Settings.kbScale = it / 100f }
         ui.slider("Высота клавиш", 100, 180, (Settings.keyAspect * 100).roundToInt(), { "${it}% ширины" }) { Settings.keyAspect = it / 100f }
         ui.slider("Положение (если клавиатура меньше экрана)", 0, 100, (Settings.vpos * 100).roundToInt(), {
@@ -421,7 +582,7 @@ class MainActivity : Activity() {
             Settings.forgetAllPairings(); cm.reconnectWifi(); cm.reconnectUsb()
         }
         val ver = try { packageManager.getPackageInfo(packageName, 0).versionName } catch (_: Exception) { "?" }
-        ui.text("LocalKeys для Android $ver · раскладка Dark Project 68\n" +
+        ui.text("LocalKeys для Android $ver · пресеты Dark Project 68 и MSFS 2020\n" +
             "Словари: FrequencyWords (Hermit Dave, OpenSubtitles), CC BY-SA 4.0")
 
         // A plain Dialog: AlertDialog clips a long custom view instead of letting it scroll.

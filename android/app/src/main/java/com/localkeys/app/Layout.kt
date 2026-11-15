@@ -1,5 +1,16 @@
 package com.localkeys.app
 
+enum class PresetKind { KEYBOARD, MSFS }
+
+data class Preset(val id: String, val name: String, val subtitle: String, val kind: PresetKind)
+
+object Presets {
+    val dp68 = Preset("dp68", "Клавиатура (Dark Project 68)", "65% раскладка для набора текста и игр", PresetKind.KEYBOARD)
+    val msfs = Preset("msfs2020", "MSFS 2020 (Полёт)", "Штурвал, РУД, педали, обзор и кнопки самолёта", PresetKind.MSFS)
+    val all = listOf(dp68, msfs)
+    fun byId(id: String) = all.firstOrNull { it.id == id } ?: dp68
+}
+
 enum class Special { FN, LANG_SWITCH, TEXT_PANEL, RELEASE_ALL }
 
 sealed class KeyAction {

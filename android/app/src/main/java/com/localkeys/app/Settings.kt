@@ -24,8 +24,19 @@ object Settings {
 
     private fun b(k: String, d: Boolean) = p.getBoolean(k, d)
     private fun f(k: String, d: Float) = p.getFloat(k, d)
+    private fun i(k: String, d: Int) = p.getInt(k, d)
     private fun s(k: String, d: String) = p.getString(k, d) ?: d
     private fun put(block: SharedPreferences.Editor.() -> Unit) = p.edit().apply(block).apply()
+
+    // Presets & MSFS 2020
+    var presetId: String get() = s("presetId", "dp68"); set(v) = put { putString("presetId", v) }
+    /** "kb" (MSFS default keyboard + mouse) | "vjoy" (vJoy virtual joystick). */
+    var msfsInputMode: String get() = s("msfsInputMode", "kb"); set(v) = put { putString("msfsInputMode", v) }
+    /** Full stick travel time in ms for MSFS keyboard mode (700..2200). */
+    var msfsStickTravelMs: Int get() = i("msfsStickTravelMs", 1200); set(v) = put { putInt("msfsStickTravelMs", v) }
+    var msfsCameraSens: Float get() = f("msfsCameraSens", 1.3f); set(v) = put { putFloat("msfsCameraSens", v) }
+    var msfsTiltRangeDeg: Float get() = f("msfsTiltRangeDeg", 28f); set(v) = put { putFloat("msfsTiltRangeDeg", v) }
+    var msfsInvertY: Boolean get() = b("msfsInvertY", false); set(v) = put { putBoolean("msfsInvertY", v) }
 
     // Appearance
     var themeId: String get() = s("themeId", "midnight"); set(v) = put { putString("themeId", v) }

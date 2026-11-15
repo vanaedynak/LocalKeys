@@ -21,6 +21,7 @@ object Msg {
     const val MOUSE_MOVE = 0x20
     const val MOUSE_BUTTON = 0x21
     const val SCROLL = 0x22
+    const val JOYSTICK = 0x23
     const val COMMAND = 0x30
     const val PC_STATE = 0x40
 }
@@ -45,8 +46,29 @@ object Proto {
 
     fun keyDown(c: Int) = frame(Msg.KEY_DOWN, u16(c))
     fun keyUp(c: Int) = frame(Msg.KEY_UP, u16(c))
+    fun mouseMove(dx: Int, dy: Int) = frame(Msg.MOUSE_MOVE, i16(dx) + i16(dy))
     fun mouseButton(b: Int, down: Boolean) = frame(Msg.MOUSE_BUTTON, byteArrayOf(b.toByte(), if (down) 1 else 0))
     fun scroll(v: Int, h: Int) = frame(Msg.SCROLL, i16(v) + i16(h))
+
+    /** Virtual joystick (vJoy): [u8 n][n * i16 axis][u32 buttons][u8 holdMask]. */
+    fun joystick(axes: IntArray, buttons: Long, holdMask: Int): ByteArray {
+        val n = axes.size.coerceAtMost(8)
+        val p = ByteArray(1 + n * 2 + 5)
+        p[0] = n.toByte()
+        for (i in 0 until n) {
+            val v = axes[i].coerceIn(-32767, 32767) and 0xFFFF
+            p[1 + i * 2] = (v shr 8).toByte()
+            p[2 + i * 2] = v.toByte()
+        }
+        val off = 1 + n * 2
+        p[off] = (buttons shr 24).toByte()
+        p[off + 1] = (buttons shr 16).toByte()
+        p[off + 2] = (buttons shr 8).toByte()
+        p[off + 3] = buttons.toByte()
+        p[off + 4] = holdMask.toByte()
+        return frame(Msg.JOYSTICK, p)
+    }
+
     fun text(s: String): ByteArray {
         val b = s.toByteArray(Charsets.UTF_8)
         return frame(Msg.TEXT, if (b.size > 60000) b.copyOf(60000) else b)
@@ -108,6 +130,7 @@ data class PcState(
     val num: Boolean,
     val scroll: Boolean,
     val addresses: List<String>,
+    val joystick: String? = null,
 ) {
     companion object {
         fun from(o: JSONObject): PcState {
@@ -140,6 +163,7 @@ data class PcState(
                 num = o.optBoolean("num"),
                 scroll = o.optBoolean("scroll"),
                 addresses = addrs,
+                joystick = str("joystick"),
             )
         }
     }

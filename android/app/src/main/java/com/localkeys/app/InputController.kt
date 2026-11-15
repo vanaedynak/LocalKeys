@@ -168,6 +168,36 @@ object InputController {
         codes.reversed().forEach { release(it) }
     }
 
+    fun mouseDown(button: Int) {
+        val n = (buttonCounts[button] ?: 0) + 1
+        buttonCounts[button] = n
+        updateHeld()
+        if (n == 1) send(Proto.mouseButton(button, true))
+    }
+
+    fun mouseUp(button: Int) {
+        val n = buttonCounts[button] ?: return
+        if (n <= 1) {
+            buttonCounts.remove(button)
+            updateHeld()
+            send(Proto.mouseButton(button, false))
+        } else {
+            buttonCounts[button] = n - 1
+        }
+    }
+
+    fun mouseMove(dx: Int, dy: Int) {
+        if (dx != 0 || dy != 0) send(Proto.mouseMove(dx, dy))
+    }
+
+    fun scroll(v: Int, h: Int = 0) {
+        if (v != 0 || h != 0) send(Proto.scroll(v, h))
+    }
+
+    fun sendJoystick(axes: IntArray, buttons: Long, holdMask: Int) {
+        send(Proto.joystick(axes, buttons, holdMask))
+    }
+
     // MARK: sync
 
     fun stateSyncFrame(): ByteArray {

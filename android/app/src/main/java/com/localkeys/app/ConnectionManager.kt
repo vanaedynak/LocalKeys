@@ -42,6 +42,8 @@ object ConnectionManager {
     val onChange = ArrayList<() -> Unit>()
     /** The PC's keyboard layout or lock keys changed (keycap legends). */
     val onLegends = ArrayList<() -> Unit>()
+    /** Active transport changed or came up (resend stateful controls like vJoy). */
+    val onLinkReady = ArrayList<() -> Unit>()
 
     private lateinit var ctx: Context
     private val main = Handler(Looper.getMainLooper())
@@ -425,6 +427,7 @@ object ConnectionManager {
             if (active != null) {
                 // Transport switch (or first connect): make the PC mirror exactly what is held now.
                 active.send(InputController.stateSyncFrame())
+                onLinkReady.forEach { it() }
                 pcState?.let { if (active.serverHelloName != it.pcName) pcState = null }
                 sendCommand("requestState")
             }
